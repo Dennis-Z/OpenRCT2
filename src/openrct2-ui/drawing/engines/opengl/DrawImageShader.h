@@ -34,6 +34,9 @@ struct DrawImageInstance {
     vec4f colour;
     vec4i bounds;
     sint32 mask;
+	float prelight;
+	vec3f worldBoxOrigin;
+	vec3f worldBoxSize;
 
     enum
     {
@@ -50,6 +53,7 @@ private:
     GLuint uScreenSize;
     GLuint uTexture;
     GLuint uPalette;
+	GLuint uLightmap;
 
     GLuint vIndex;
     GLuint vClip;
@@ -63,6 +67,9 @@ private:
     GLuint vColour;
     GLuint vBounds;
     GLuint vMask;
+	GLuint vPrelight;
+	GLuint vWorldBoxOrigin;
+	GLuint vWorldBoxSize;
 
     GLuint _vbo;
     GLuint _vboInstances;

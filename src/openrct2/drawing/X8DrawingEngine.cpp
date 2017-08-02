@@ -166,6 +166,10 @@ void X8DrawingEngine::SetPalette(const rct_palette_entry * palette)
 {
 }
 
+void X8DrawingEngine::UpdateLightmap(float* data)
+{
+}
+
 void X8DrawingEngine::SetUncappedFrameRate(bool uncapped)
 {
     // Not applicable for this engine
@@ -735,6 +739,11 @@ void X8DrawingContext::DrawLine(uint32 colour, sint32 x1, sint32 y1, sint32 x2, 
 void X8DrawingContext::DrawSprite(uint32 image, sint32 x, sint32 y, uint32 tertiaryColour)
 {
     gfx_draw_sprite_software(_dpi, image, x, y, tertiaryColour);
+}
+
+void X8DrawingContext::DrawSpriteLit(uint32 image, sint32 x, sint32 y, uint32 tertiaryColour, float box_size[3], float box_origin[3])
+{
+	gfx_draw_sprite_software(_dpi, image, x, y, tertiaryColour);
 }
 
 void X8DrawingContext::DrawSpriteRawMasked(sint32 x, sint32 y, uint32 maskImage, uint32 colourImage)

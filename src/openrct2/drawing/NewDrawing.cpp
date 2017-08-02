@@ -270,6 +270,15 @@ extern "C"
         }
     }
 
+	void FASTCALL gfx_draw_sprite_lit(rct_drawpixelinfo * dpi, sint32 image, sint32 x, sint32 y, uint32 tertiary_colour, float box_size[3], float box_origin[3])
+	{
+		if (_drawingEngine != nullptr)
+		{
+			IDrawingContext * dc = _drawingEngine->GetDrawingContext(dpi);
+			dc->DrawSpriteLit(image, x, y, tertiary_colour, box_size, box_origin);
+		}
+	}
+
     void FASTCALL gfx_draw_glpyh(rct_drawpixelinfo * dpi, sint32 image, sint32 x, sint32 y, uint8 * palette)
     {
         if (_drawingEngine != nullptr)

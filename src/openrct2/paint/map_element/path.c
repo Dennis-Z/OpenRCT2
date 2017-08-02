@@ -30,6 +30,7 @@
 #include "surface.h"
 #include "../../world/map.h"
 #include "../../drawing/lightfx.h"
+#include "../../lighting/vollighting.h"
 
 // #3628: Until path_paint is implemented, this variable is used by scrolling_text_setup
 //        to use the old string arguments array. Remove when scrolling_text_setup is no
@@ -797,6 +798,23 @@ void path_paint(uint8 direction, uint16 height, rct_map_element * map_element)
         }
     }
 #endif
+	if (footpath_element_has_path_scenery(map_element) && !(map_element->flags & MAP_ELEMENT_FLAG_BROKEN)) {
+		rct_scenery_entry *sceneryEntry = get_footpath_item_entry(footpath_element_get_path_scenery_index(map_element));
+		if (sceneryEntry->path_bit.flags & PATH_BIT_FLAG_LAMP) {
+			if (!(map_element->properties.path.edges & (1 << 0))) {
+				lighting_apply_light_3d(x, y, (height) / 4);
+			}
+			if (!(map_element->properties.path.edges & (1 << 1))) {
+				lighting_apply_light_3d(x, y, (height) / 4);
+			}
+			if (!(map_element->properties.path.edges & (1 << 2))) {
+				lighting_apply_light_3d(x, y, (height) / 4);
+			}
+			if (!(map_element->properties.path.edges & (1 << 3))) {
+				lighting_apply_light_3d(x, y, (height) / 4);
+			}
+		}
+	}
 }
 
 void path_paint_pole_support(rct_map_element * mapElement, sint32 height, rct_footpath_entry * footpathEntry, bool hasFences, uint32 imageFlags, uint32 sceneryImageFlags)

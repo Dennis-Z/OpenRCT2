@@ -29,6 +29,7 @@ extern "C"
     #include "../interface/console.h"
     #include "../intro.h"
     #include "../localisation/localisation.h"
+	#include "../lighting/vollighting.h"
 }
 
 using namespace OpenRCT2;
@@ -50,8 +51,21 @@ void Painter::Paint(IDrawingEngine * de)
     }
     else
     {
+		lighting_reset();
+
+		for (int y = 0; y < 128; y++) {
+			for (int x = 0; x < 128; x++) {
+				lighting_compute_skylight(x, y);
+			}
+		}
+
         de->PaintWindows();
 
+		//lighting_apply_light(30, 30);
+		lighting_apply_light_3d(30 * 32, 30 * 32, 22 * 2);
+
+		de->UpdateLightmap(lighting_get_data());
+			
         update_palette_effects();
         chat_draw(dpi);
         console_draw(dpi);
@@ -66,7 +80,7 @@ void Painter::Paint(IDrawingEngine * de)
 
         de->PaintRain();
     }
-
+	
     if (gConfigGeneral.show_fps)
     {
         PaintFPS(dpi);

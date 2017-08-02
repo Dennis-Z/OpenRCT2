@@ -38,8 +38,10 @@ namespace OpenRCT2 { namespace Drawing
         virtual void FilterRect(FILTER_PALETTE_ID palette, sint32 left, sint32 top, sint32 right, sint32 bottom) abstract;
         virtual void DrawLine(uint32 colour, sint32 x1, sint32 y1, sint32 x2, sint32 y2)                      abstract;
         virtual void DrawSprite(uint32 image, sint32 x, sint32 y, uint32 tertiaryColour)                      abstract;
+		virtual void DrawSpriteLit(uint32 image, sint32 x, sint32 y, uint32 tertiaryColour, float box_size[3], float box_origin[3]) abstract;
         virtual void DrawSpriteRawMasked(sint32 x, sint32 y, uint32 maskImage, uint32 colourImage)            abstract;
         virtual void DrawSpriteSolid(uint32 image, sint32 x, sint32 y, uint8 colour)                          abstract;
         virtual void DrawGlyph(uint32 image, sint32 x, sint32 y, uint8 * palette)                             abstract;
+		virtual void UpdateLightmap(float* data) abstract;
     };
 } }

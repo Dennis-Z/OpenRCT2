@@ -53,6 +53,7 @@ namespace OpenRCT2 { namespace Drawing
         virtual void Initialise()                                   abstract;
         virtual void Resize(uint32 width, uint32 height)            abstract;
         virtual void SetPalette(const rct_palette_entry * colours)  abstract;
+		virtual void UpdateLightmap(float* data) abstract;
 
         virtual void SetUncappedFrameRate(bool uncapped) abstract;
 

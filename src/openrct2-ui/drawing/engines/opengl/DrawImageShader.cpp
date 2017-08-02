@@ -46,6 +46,9 @@ DrawImageShader::DrawImageShader() : OpenGLShaderProgram("drawimage")
     glVertexAttribPointer(vColour, 4, GL_FLOAT, GL_FALSE, sizeof(DrawImageInstance), (void*) offsetof(DrawImageInstance, colour));
     glVertexAttribIPointer(vBounds, 4, GL_INT, sizeof(DrawImageInstance), (void*) offsetof(DrawImageInstance, bounds));
     glVertexAttribIPointer(vMask, 1, GL_INT, sizeof(DrawImageInstance), (void*) offsetof(DrawImageInstance, mask));
+	glVertexAttribPointer(vPrelight, 1, GL_FLOAT, GL_FALSE, sizeof(DrawImageInstance), (void*)offsetof(DrawImageInstance, prelight));
+	glVertexAttribPointer(vWorldBoxOrigin, 3, GL_FLOAT, GL_FALSE, sizeof(DrawImageInstance), (void*)offsetof(DrawImageInstance, worldBoxOrigin));
+	glVertexAttribPointer(vWorldBoxSize, 3, GL_FLOAT, GL_FALSE, sizeof(DrawImageInstance), (void*)offsetof(DrawImageInstance, worldBoxSize));
 
     glEnableVertexAttribArray(vIndex);
     glEnableVertexAttribArray(vClip);
@@ -59,6 +62,9 @@ DrawImageShader::DrawImageShader() : OpenGLShaderProgram("drawimage")
     glEnableVertexAttribArray(vColour);
     glEnableVertexAttribArray(vBounds);
     glEnableVertexAttribArray(vMask);
+	glEnableVertexAttribArray(vPrelight);
+	glEnableVertexAttribArray(vWorldBoxOrigin);
+	glEnableVertexAttribArray(vWorldBoxSize);
 
     glVertexAttribDivisor(vClip, 1);
     glVertexAttribDivisor(vTexColourAtlas, 1);
@@ -71,9 +77,13 @@ DrawImageShader::DrawImageShader() : OpenGLShaderProgram("drawimage")
     glVertexAttribDivisor(vColour, 1);
     glVertexAttribDivisor(vBounds, 1);
     glVertexAttribDivisor(vMask, 1);
+	glVertexAttribDivisor(vPrelight, 1);
+	glVertexAttribDivisor(vWorldBoxOrigin, 1);
+	glVertexAttribDivisor(vWorldBoxSize, 1);
 
     Use();
-    glUniform1i(uTexture, 0);
+	glUniform1i(uTexture, 0);
+	glUniform1i(uLightmap, 1);
 }
 
 DrawImageShader::~DrawImageShader()
@@ -88,6 +98,7 @@ void DrawImageShader::GetLocations()
     uScreenSize         = GetUniformLocation("uScreenSize");
     uTexture            = GetUniformLocation("uTexture");
     uPalette            = GetUniformLocation("uPalette");
+	uLightmap           = GetUniformLocation("uLightmap");
 
     vIndex              = GetAttributeLocation("vIndex");
     vClip               = GetAttributeLocation("ivClip");
@@ -101,6 +112,9 @@ void DrawImageShader::GetLocations()
     vColour             = GetAttributeLocation("ivColour");
     vBounds             = GetAttributeLocation("ivBounds");
     vMask               = GetAttributeLocation("ivMask");
+	vPrelight           = GetAttributeLocation("ivPrelight");
+	vWorldBoxOrigin     = GetAttributeLocation("ivWorldBoxOrigin");
+	vWorldBoxSize       = GetAttributeLocation("ivWorldBoxSize");
 }
 
 void DrawImageShader::SetScreenSize(sint32 width, sint32 height)

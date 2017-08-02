@@ -31,6 +31,7 @@ void sprite_paint_setup(const uint16 eax, const uint16 ecx) {
 
     if ((eax & 0xe000) | (ecx & 0xe000)) return;
 
+	//log_info("uhu %d %d", eax >> 5, ecx >> 5);
     uint16 sprite_idx = sprite_get_first_in_quadrant(eax, ecx);
     if (sprite_idx == SPRITE_INDEX_NULL) return;
 

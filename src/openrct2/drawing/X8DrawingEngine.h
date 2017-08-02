@@ -97,6 +97,7 @@ namespace OpenRCT2
             void Initialise() override;
             void Resize(uint32 width, uint32 height) override;
             void SetPalette(const rct_palette_entry * palette) override;
+			void UpdateLightmap(float* data) override;
             void SetUncappedFrameRate(bool uncapped) override;
             void Invalidate(sint32 left, sint32 top, sint32 right, sint32 bottom) override;
             void BeginDraw() override;
@@ -142,9 +143,11 @@ namespace OpenRCT2
             void FilterRect(FILTER_PALETTE_ID palette, sint32 left, sint32 top, sint32 right, sint32 bottom) override;
             void DrawLine(uint32 colour, sint32 x1, sint32 y1, sint32 x2, sint32 y2) override;
             void DrawSprite(uint32 image, sint32 x, sint32 y, uint32 tertiaryColour) override;
+			void DrawSpriteLit(uint32 image, sint32 x, sint32 y, uint32 tertiaryColour, float box_size[3], float box_origin[3]) override;
             void DrawSpriteRawMasked(sint32 x, sint32 y, uint32 maskImage, uint32 colourImage) override;
             void DrawSpriteSolid(uint32 image, sint32 x, sint32 y, uint8 colour) override;
             void DrawGlyph(uint32 image, sint32 x, sint32 y, uint8 * palette) override;
+			void UpdateLightmap(float* data) override {};
 
             void SetDPI(rct_drawpixelinfo * dpi);
         };

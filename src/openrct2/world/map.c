@@ -118,6 +118,7 @@ rct_xyz16 gCommandPosition;
 
 bool gMapLandRightsUpdateSuccess;
 
+
 static void map_update_grass_length(sint32 x, sint32 y, rct_map_element *mapElement);
 static void map_set_grass_length(sint32 x, sint32 y, rct_map_element *mapElement, sint32 length);
 static void clear_elements_at(sint32 x, sint32 y);
