@@ -60,6 +60,7 @@
 #include "world/scenery.h"
 #include "world/sprite.h"
 #include "world/water.h"
+#include "lighting/vollighting.h"
 
 #define NUMBER_OF_AUTOSAVES_TO_KEEP 9
 
@@ -1498,6 +1499,8 @@ void game_init_all(sint32 mapSize)
     scenery_set_default_placement_configuration();
     window_tile_inspector_clear_clipboard();
     load_palette();
+
+	lighting_init();
 }
 
 GAME_COMMAND_POINTER* new_game_command_table[GAME_COMMAND_COUNT] = {

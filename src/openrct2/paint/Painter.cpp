@@ -53,8 +53,8 @@ void Painter::Paint(IDrawingEngine * de)
     {
 		lighting_reset();
 
-		for (int y = 0; y < 128; y++) {
-			for (int x = 0; x < 128; x++) {
+		for (int y = 0; y < 256; y++) {
+			for (int x = 0; x < 256; x++) {
 				lighting_compute_skylight(x, y);
 			}
 		}
@@ -62,9 +62,12 @@ void Painter::Paint(IDrawingEngine * de)
         de->PaintWindows();
 
 		//lighting_apply_light(30, 30);
-		lighting_apply_light_3d(30 * 32, 30 * 32, 22 * 2);
+		//lighting_apply_light_3d(30 * 32, 30 * 32, 22 * 2);
 
-		de->UpdateLightmap(lighting_get_data());
+		float* lm = lighting_get_data();
+		if (lm) {
+			de->UpdateLightmap(lm);
+		}
 			
         update_palette_effects();
         chat_draw(dpi);
