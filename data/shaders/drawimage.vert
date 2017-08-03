@@ -13,6 +13,9 @@ in int   ivFlags;
 in vec4  ivColour;
 in ivec4 ivBounds;
 in int   ivMask;
+in vec3  ivWorldBoxOrigin;
+in vec3  ivWorldBoxSize;
+in float ivPrelight;
 
 in uint vIndex;
 
@@ -28,6 +31,9 @@ out vec2       fTexMaskCoords;
 flat out int   fTexPaletteAtlas;
 flat out vec4  fTexPaletteBounds;
 flat out int   fMask;
+flat out vec3  fWorldBoxOrigin;
+flat out vec3  fBoxProjData;
+flat out float fPrelight;
 
 void main()
 {
@@ -70,6 +76,9 @@ void main()
     fTexMaskAtlas = ivTexMaskAtlas;
     fTexPaletteAtlas = ivTexPaletteAtlas;
     fTexPaletteBounds = ivTexPaletteBounds;
+    fWorldBoxOrigin = ivWorldBoxOrigin;
+    fBoxProjData = ivWorldBoxSize;
+    fPrelight = ivPrelight;
 
     gl_Position = vec4(pos, 0.0, 1.0);
 }
