@@ -51,22 +51,24 @@ void Painter::Paint(IDrawingEngine * de)
     }
     else
     {
-		lighting_reset();
+		//lighting_reset();
 
-		for (int y = 0; y < 256; y++) {
-			for (int x = 0; x < 256; x++) {
+		/*for (int y = 0; y < 356; y++) {
+			for (int x = 0; x < 356; x++) {
 				lighting_compute_skylight(x, y);
 			}
-		}
+		}*/
 
         de->PaintWindows();
 
 		//lighting_apply_light(30, 30);
 		//lighting_apply_light_3d(30 * 32, 30 * 32, 22 * 2);
 
-		float* lm = lighting_get_data();
-		if (lm) {
-			de->UpdateLightmap(lm);
+		for (int i = 0; i < 10; i++) {
+			lighting_chunk* changed = lighting_update();
+			if (changed) {
+				de->UpdateLightmap(changed->x, changed->y, changed->z, (uint8*)changed->data);
+			}
 		}
 			
         update_palette_effects();

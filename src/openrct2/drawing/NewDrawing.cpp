@@ -297,6 +297,15 @@ extern "C"
         }
     }
 
+	void FASTCALL gfx_draw_sprite_raw_masked_lit(rct_drawpixelinfo * dpi, sint32 x, sint32 y, sint32 maskImage, sint32 colourImage, float box_size[3], float box_origin[3])
+	{
+		if (_drawingEngine != nullptr)
+		{
+			IDrawingContext * dc = _drawingEngine->GetDrawingContext(dpi);
+			dc->DrawSpriteRawMaskedLit(x, y, maskImage, colourImage, box_size, box_origin);
+		}
+	}
+
     void FASTCALL gfx_draw_sprite_solid(rct_drawpixelinfo * dpi, sint32 image, sint32 x, sint32 y, uint8 colour)
     {
         if (_drawingEngine != nullptr)

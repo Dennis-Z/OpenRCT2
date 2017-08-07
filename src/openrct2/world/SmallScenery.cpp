@@ -25,6 +25,7 @@ extern "C"
     #include "park.h"
     #include "../cheats.h"
     #include "../ride/track_design.h"
+	#include "../lighting/vollighting.h"
 }
 
 static money32 SmallSceneryRemove(sint16 x, sint16 y, sint8 baseHeight, uint8 quadrant, uint8 sceneryType, uint8 flags)
@@ -452,6 +453,8 @@ extern "C"
             (*edx >> 8) & 0xFF,
             *ebx & 0xFF
         );
+
+		lighting_invalidate_at((*eax & 0xFFFF) / 32, (*ecx & 0xFFFF) / 32);
     }
 
     /**
@@ -560,5 +563,7 @@ extern "C"
             (*edi >> 16) & 0xFF,
             *ebx & 0xFF
         );
+
+		lighting_invalidate_at((*eax & 0xFFFF) / 32, (*ecx & 0xFFFF) / 32);
     }
 }

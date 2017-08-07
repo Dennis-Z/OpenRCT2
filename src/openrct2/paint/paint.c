@@ -79,7 +79,7 @@ bool gPaintBoundingBoxes;
 
 static void paint_attached_ps(rct_drawpixelinfo * dpi, paint_struct * ps, uint32 viewFlags);
 static void paint_ps_image_with_bounding_boxes(rct_drawpixelinfo * dpi, paint_struct * ps, uint32 imageId, sint16 x, sint16 y);
-static void paint_ps_image(rct_drawpixelinfo * dpi, paint_struct * ps, uint32 imageId, sint16 x, sint16 y, float wx, float wy, float wz);
+static void paint_ps_image(rct_drawpixelinfo * dpi, paint_struct * ps, uint32 imageId, sint16 x, sint16 y);
 static uint32 paint_ps_colourify_image(uint32 imageId, uint8 spriteType, uint32 viewFlags);
 
 /**
@@ -895,8 +895,7 @@ void paint_draw_structs(rct_drawpixelinfo * dpi, paint_struct * ps, uint32 viewF
         if (gPaintBoundingBoxes && dpi->zoom_level == 0) {
             paint_ps_image_with_bounding_boxes(dpi, ps, imageId, x, y);
         } else {
-			//log_info("draw %d %d", ps->map_x, ps->map_y);
-            paint_ps_image(dpi, ps, imageId, x, y, ps->map_x / 32.0, ps->map_y / 32.0, ps->mapElement->base_height);
+            paint_ps_image(dpi, ps, imageId, x, y);
         }
 
         if (ps->var_20 != 0) {
@@ -921,11 +920,21 @@ static void paint_attached_ps(rct_drawpixelinfo * dpi, paint_struct * ps, uint32
         sint16 x = attached_ps->x + ps->x;
         sint16 y = attached_ps->y + ps->y;
 
+		rct_xyz16 box_origin = { .x = ps->bound_box_x_end,.y = ps->bound_box_y_end,.z = ps->bound_box_z };
+		float box_real_origin_cv[3] = { box_origin.x / 32.0f, box_origin.y / 32.0f, box_origin.z / 8.0f };
+
+		rct_xyz16 frontTop = { .x = ps->bound_box_x_end,.y = ps->bound_box_y_end,.z = ps->bound_box_z_end };
+		rct_xy16 screenCoordFrontTop = coordinate_3d_to_2d(&frontTop, get_current_rotation());
+		rct_xyz16 frontBottom = { .x = ps->bound_box_x_end,.y = ps->bound_box_y_end,.z = ps->bound_box_z };
+		rct_xy16 screenCoordFrontBottom = coordinate_3d_to_2d(&frontBottom, get_current_rotation());
+
+		float box_projdata[3] = { screenCoordFrontBottom.x, screenCoordFrontBottom.y, screenCoordFrontTop.y - 4 }; // -4 because the bbox is always 1 too low for some reason
+
         uint32 imageId = paint_ps_colourify_image(attached_ps->image_id, ps->sprite_type, viewFlags);
         if (attached_ps->flags & PAINT_STRUCT_FLAG_IS_MASKED) {
-            gfx_draw_sprite_raw_masked(dpi, x, y, imageId, attached_ps->colour_image_id);
+            gfx_draw_sprite_raw_masked_lit(dpi, x, y, imageId, attached_ps->colour_image_id, box_projdata, box_real_origin_cv);
         } else {
-            gfx_draw_sprite(dpi, imageId, x, y, ps->tertiary_colour);
+            gfx_draw_sprite_lit(dpi, imageId, x, y, ps->tertiary_colour, box_projdata, box_real_origin_cv);
         }
     }
 }
@@ -976,107 +985,26 @@ static void paint_ps_image_with_bounding_boxes(rct_drawpixelinfo * dpi, paint_st
     // top square
     gfx_draw_line(dpi, screenCoordFrontTop.x, screenCoordFrontTop.y, screenCoordLeftTop.x, screenCoordLeftTop.y, colour);
     gfx_draw_line(dpi, screenCoordFrontTop.x, screenCoordFrontTop.y, screenCoordRightTop.x, screenCoordRightTop.y, colour);
-	paint_ps_image(dpi, ps, imageId, x, y, 0.0, 0.0, 0.0);
+	paint_ps_image(dpi, ps, imageId, x, y);
 }
 
-static void paint_ps_image(rct_drawpixelinfo * dpi, paint_struct * ps, uint32 imageId, sint16 x, sint16 y, float wx, float wy, float wz)
+static void paint_ps_image(rct_drawpixelinfo * dpi, paint_struct * ps, uint32 imageId, sint16 x, sint16 y)
 {
-    if (ps->flags & PAINT_STRUCT_FLAG_IS_MASKED) {
-        gfx_draw_sprite_raw_masked(dpi, x, y, imageId, ps->colour_image_id);
-    } else {
-		//rct_xyz16 box_size = { .x = ps->bound_box_x_end - ps->bound_box_x, .y = ps->bound_box_y_end - ps->bound_box_y, .z = ps->bound_box_z_end - ps->bound_box_z };
-		//float box_size_cv[3] = { box_size.x, box_size.y, box_size.z };
-		rct_xyz16 box_origin = { .x = ps->bound_box_x_end, .y = ps->bound_box_y_end, .z = ps->bound_box_z };
-		float box_real_origin_cv[3] = { box_origin.x / 32.0f, box_origin.y / 32.0f, box_origin.z / 8.0f };
-		//log_info("ct_box1 %f %f %f", box_real_origin_cv[0], box_real_origin_cv[1], box_real_origin_cv[2]);
-		//log_info("ct_box2 %f %f %f", wx, wy, wz);
-		// z / 8
-		//float box_real_origin_cv[3] = { wx, wy, wz };
-		//rct_xy16 screenCoordFrontBottom = coordinate_3d_to_2d(&frontBottom, get_current_rotation());
+	rct_xyz16 box_origin = { .x = ps->bound_box_x_end,.y = ps->bound_box_y_end,.z = ps->bound_box_z };
+	float box_real_origin_cv[3] = { box_origin.x / 32.0f, box_origin.y / 32.0f, box_origin.z / 8.0f };
 
-		//rct_xyz16 backTop = { .x = ps->bound_box_x,.y = ps->bound_box_y,.z = ps->bound_box_z_end };
-		//rct_xy16 screenCoordBackTop = coordinate_3d_to_2d(&backTop, get_current_rotation());
-
-		rct_xyz16 frontTop = { .x = ps->bound_box_x_end,.y = ps->bound_box_y_end,.z = ps->bound_box_z_end };
-		rct_xy16 screenCoordFrontTop = coordinate_3d_to_2d(&frontTop, get_current_rotation());
-		rct_xyz16 frontBottom = { .x = ps->bound_box_x_end,.y = ps->bound_box_y_end,.z = ps->bound_box_z };
-		rct_xy16 screenCoordFrontBottom = coordinate_3d_to_2d(&frontBottom, get_current_rotation());
-
-		//rct_xyz16 leftTop = { .x = ps->bound_box_x,.y = ps->bound_box_y_end,.z = ps->bound_box_z_end };
-		//rct_xy16 screenCoordLeftTop = coordinate_3d_to_2d(&leftTop, get_current_rotation());
-		//rct_xyz16 leftBottom = { .x = ps->bound_box_x,.y = ps->bound_box_y_end,.z = ps->bound_box_z };
-		//rct_xy16 screenCoordLeftBottom = coordinate_3d_to_2d(&leftBottom, get_current_rotation());
-
-		//rct_xyz16 rightTop = { .x = ps->bound_box_x_end,.y = ps->bound_box_y,.z = ps->bound_box_z_end };
-		//rct_xy16 screenCoordRightTop = coordinate_3d_to_2d(&rightTop, get_current_rotation());
-		//rct_xyz16 rightBottom = { .x = ps->bound_box_x_end,.y = ps->bound_box_y,.z = ps->bound_box_z };
-		//rct_xy16 screenCoordRightBottom = coordinate_3d_to_2d(&rightBottom, get_current_rotation());
-
-		float box_projdata[3] = {screenCoordFrontBottom.x, screenCoordFrontBottom.y, screenCoordFrontTop.y};
-
-		if (box_projdata[1] < box_projdata[2]) {
-			float diff = box_projdata[2] - box_projdata[1];
-			box_projdata[2] = screenCoordFrontBottom.y - diff;
-		}
-
-		// the sprite is split into 3 planes (facing the camera)
-		// top
-		// left
-		// right
-		//float center_cut_at = (float)abs(screenCoordRightBottom.x - screenCoordFrontBottom.x) / abs(screenCoordRightBottom.x - screenCoordLeftBottom.x);
-		//log_info("ehhhh %f", center_cut_at);
-		//float top_cut_at = (float)abs(screenCoordBackTop.y - screenCoordFrontTop.y) / abs(screenCoordBackTop.y - screenCoordFrontBottom.y);
-		//float box_origin_cv[3] = { center_cut_at, top_cut_at, 0.0f };
-        gfx_draw_sprite_lit(dpi, imageId, x, y, ps->tertiary_colour, box_projdata, box_real_origin_cv);
-		//gfx_draw_line(dpi, x, y, x, y + 10, 229);
-    }
-
-	//uint8 colour = BoundBoxDebugColours[ps->sprite_type];
-
-	/*rct_xyz16 frontTop = { .x = ps->bound_box_x_end,.y = ps->bound_box_y_end,.z = ps->bound_box_z_end };
+	rct_xyz16 frontTop = { .x = ps->bound_box_x_end,.y = ps->bound_box_y_end,.z = ps->bound_box_z_end };
 	rct_xy16 screenCoordFrontTop = coordinate_3d_to_2d(&frontTop, get_current_rotation());
 	rct_xyz16 frontBottom = { .x = ps->bound_box_x_end,.y = ps->bound_box_y_end,.z = ps->bound_box_z };
 	rct_xy16 screenCoordFrontBottom = coordinate_3d_to_2d(&frontBottom, get_current_rotation());
 
-	rct_xyz16 leftTop = { .x = ps->bound_box_x,.y = ps->bound_box_y_end,.z = ps->bound_box_z_end };
-	rct_xy16 screenCoordLeftTop = coordinate_3d_to_2d(&leftTop, get_current_rotation());
-	rct_xyz16 leftBottom = { .x = ps->bound_box_x,.y = ps->bound_box_y_end,.z = ps->bound_box_z };
-	rct_xy16 screenCoordLeftBottom = coordinate_3d_to_2d(&leftBottom, get_current_rotation());
+	float box_projdata[3] = { screenCoordFrontBottom.x, screenCoordFrontBottom.y, screenCoordFrontBottom.y - screenCoordFrontTop.y < 4 ? screenCoordFrontBottom.y : screenCoordFrontTop.y - 4 }; // -4 because the bbox is always 1 too low for some reason
 
-	rct_xyz16 rightTop = { .x = ps->bound_box_x_end,.y = ps->bound_box_y,.z = ps->bound_box_z_end };
-	rct_xy16 screenCoordRightTop = coordinate_3d_to_2d(&rightTop, get_current_rotation());
-	rct_xyz16 rightBottom = { .x = ps->bound_box_x_end,.y = ps->bound_box_y,.z = ps->bound_box_z };
-	rct_xy16 screenCoordRightBottom = coordinate_3d_to_2d(&rightBottom, get_current_rotation());
-	*/
-	//rct_xyz16 backTop = { .x = ps->bound_box_x,.y = ps->bound_box_y,.z = ps->bound_box_z_end };
-	//rct_xy16 screenCoordBackTop = coordinate_3d_to_2d(&backTop, get_current_rotation());
-	//rct_xyz16 backBottom = { .x = ps->bound_box_x,.y = ps->bound_box_y,.z = ps->bound_box_z };
-	//rct_xy16 screenCoordBackBottom = coordinate_3d_to_2d(&backBottom, get_current_rotation());
-
-	//uint16 frontX = ps->bound_box_x_end;
-	//uint16 frontY = ps->bound_box_x_end;
-
-	// bottom square
-	//gfx_draw_line(dpi, screenCoordFrontBottom.x, screenCoordFrontBottom.y, screenCoordLeftBottom.x, screenCoordLeftBottom.y, colour);
-	//gfx_draw_line(dpi, screenCoordBackBottom.x, screenCoordBackBottom.y, screenCoordLeftBottom.x, screenCoordLeftBottom.y, colour);
-	//gfx_draw_line(dpi, screenCoordBackBottom.x, screenCoordBackBottom.y, screenCoordRightBottom.x, screenCoordRightBottom.y, colour);
-	//gfx_draw_line(dpi, screenCoordFrontBottom.x, screenCoordFrontBottom.y, screenCoordRightBottom.x, screenCoordRightBottom.y, colour);
-
-	//vertical back + sides
-	//gfx_draw_line(dpi, screenCoordBackTop.x, screenCoordBackTop.y, screenCoordBackBottom.x, screenCoordBackBottom.y, colour);
-	//gfx_draw_line(dpi, screenCoordLeftTop.x, screenCoordLeftTop.y, screenCoordLeftBottom.x, screenCoordLeftBottom.y, colour);
-	//gfx_draw_line(dpi, screenCoordRightTop.x, screenCoordRightTop.y, screenCoordRightBottom.x, screenCoordRightBottom.y, colour);
-
-	// top square back
-	//gfx_draw_line(dpi, screenCoordBackTop.x, screenCoordBackTop.y, screenCoordLeftTop.x, screenCoordLeftTop.y, colour);
-	//gfx_draw_line(dpi, screenCoordBackTop.x, screenCoordBackTop.y, screenCoordRightTop.x, screenCoordRightTop.y, colour);
-
-	// vertical front
-	//gfx_draw_line(dpi, screenCoordFrontTop.x, screenCoordFrontTop.y, screenCoordFrontBottom.x, screenCoordFrontBottom.y, colour);
-
-	// top square
-	//gfx_draw_line(dpi, screenCoordFrontTop.x, screenCoordFrontTop.y, screenCoordLeftTop.x, screenCoordLeftTop.y, colour);
-	//gfx_draw_line(dpi, screenCoordFrontTop.x, screenCoordFrontTop.y, screenCoordRightTop.x, screenCoordRightTop.y, colour);
+    if (ps->flags & PAINT_STRUCT_FLAG_IS_MASKED) {
+        gfx_draw_sprite_raw_masked_lit(dpi, x, y, imageId, ps->colour_image_id, box_projdata, box_real_origin_cv);
+    } else {
+        gfx_draw_sprite_lit(dpi, imageId, x, y, ps->tertiary_colour, box_projdata, box_real_origin_cv);
+    }
 }
 
 static uint32 paint_ps_colourify_image(uint32 imageId, uint8 spriteType, uint32 viewFlags)

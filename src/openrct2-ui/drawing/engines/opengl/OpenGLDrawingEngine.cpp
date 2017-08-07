@@ -212,10 +212,11 @@ public:
     void DrawLine(uint32 colour, sint32 x1, sint32 y1, sint32 x2, sint32 y2) override;
     void DrawSprite(uint32 image, sint32 x, sint32 y, uint32 tertiaryColour) override;
 	void DrawSpriteLit(uint32 image, sint32 x, sint32 y, uint32 tertiaryColour, float box_size[3], float box_origin[3]) override;
-    void DrawSpriteRawMasked(sint32 x, sint32 y, uint32 maskImage, uint32 colourImage) override;
+	void DrawSpriteRawMasked(sint32 x, sint32 y, uint32 maskImage, uint32 colourImage) override;
+	void DrawSpriteRawMaskedLit(sint32 x, sint32 y, uint32 maskImage, uint32 colourImage, float box_size[3], float box_origin[3]) override;
     void DrawSpriteSolid(uint32 image, sint32 x, sint32 y, uint8 colour) override;
     void DrawGlyph(uint32 image, sint32 x, sint32 y, uint8 * palette) override;
-	void UpdateLightmap(float* data) override;
+	void UpdateLightmap(uint8 x, uint8 y, uint8 z, uint8* data) override;
 
     void FlushCommandBuffers();
 
@@ -325,9 +326,9 @@ public:
         _drawingContext->ResetPalette();
     }
 
-	void UpdateLightmap(float* data) override
+	void UpdateLightmap(uint8 x, uint8 y, uint8 z, uint8* data) override
 	{
-		_drawingContext->UpdateLightmap(data);
+		_drawingContext->UpdateLightmap(x, y, z, data);
 	}
 
     void SetUncappedFrameRate(bool uncapped) override
@@ -541,7 +542,7 @@ void OpenGLDrawingContext::Initialise()
 
 	glGenTextures(1, &_lightmapTexture);
 	glBindTexture(GL_TEXTURE_3D, _lightmapTexture);
-	glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA, 512, 512, 64, 0, GL_RED, GL_FLOAT, nullptr);
+	glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA, 512, 512, 64, 0, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
 	glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -1041,6 +1042,70 @@ void OpenGLDrawingContext::DrawSpriteRawMasked(sint32 x, sint32 y, uint32 maskIm
     _commandBuffers.images.emplace_back(std::move(command));
 }
 
+void OpenGLDrawingContext::DrawSpriteRawMaskedLit(sint32 x, sint32 y, uint32 maskImage, uint32 colourImage, float box_size[3], float box_origin[3])
+{
+	rct_g1_element * g1ElementMask = gfx_get_g1_element(maskImage & 0x7FFFF);
+	rct_g1_element * g1ElementColour = gfx_get_g1_element(colourImage & 0x7FFFF);
+
+	auto textureMask = _textureCache->GetOrLoadImageTexture(maskImage);
+	auto textureColour = _textureCache->GetOrLoadImageTexture(colourImage);
+
+	uint8 zoomLevel = (1 << _dpi->zoom_level);
+
+	sint32 drawOffsetX = g1ElementMask->x_offset;
+	sint32 drawOffsetY = g1ElementMask->y_offset;
+	sint32 drawWidth = Math::Min(g1ElementMask->width, g1ElementColour->width);
+	sint32 drawHeight = Math::Min(g1ElementMask->height, g1ElementColour->height);
+
+	sint32 left = x + drawOffsetX;
+	sint32 top = y + drawOffsetY;
+	sint32 right = left + drawWidth;
+	sint32 bottom = top + drawHeight;
+
+	if (left > right)
+	{
+		std::swap(left, right);
+	}
+	if (top > bottom)
+	{
+		std::swap(top, bottom);
+	}
+
+	left -= _dpi->x;
+	top -= _dpi->y;
+	right -= _dpi->x;
+	bottom -= _dpi->y;
+
+	left /= zoomLevel;
+	top /= zoomLevel;
+	right /= zoomLevel;
+	bottom /= zoomLevel;
+
+	left += _clipLeft;
+	top += _clipTop;
+	right += _clipLeft;
+	bottom += _clipTop;
+
+	DrawImageCommand command;
+
+	command.clip = { _clipLeft, _clipTop, _clipRight, _clipBottom };
+	command.texColourAtlas = textureColour.index;
+	command.texColourBounds = textureColour.normalizedBounds;
+	command.texMaskAtlas = textureMask.index;
+	command.texMaskBounds = textureMask.normalizedBounds;
+	command.texPaletteAtlas = 0;
+	command.texPaletteBounds = { 0.0f, 0.0f, 0.0f };
+	command.flags = 0;
+	command.colour = { 0.0f, 0.0f, 0.0f };
+	command.bounds = { left, top, right, bottom };
+	command.mask = 1;
+	command.prelight = 0.0f;
+	command.worldBoxOrigin = { box_origin[0], box_origin[1], box_origin[2] };
+	command.worldBoxSize = { box_size[0] + _offsetX, box_size[1] + _offsetY, box_size[2] + _offsetY };
+
+	_commandBuffers.images.emplace_back(std::move(command));
+}
+
 void OpenGLDrawingContext::DrawSpriteSolid(uint32 image, sint32 x, sint32 y, uint8 colour)
 {
     vec4f paletteColour = _engine->GLPalette[colour & 0xFF];
@@ -1198,10 +1263,10 @@ void OpenGLDrawingContext::FlushImages()
     _commandBuffers.images.clear();
 }
 
-void OpenGLDrawingContext::UpdateLightmap(float* data)
+void OpenGLDrawingContext::UpdateLightmap(uint8 x, uint8 y, uint8 z, uint8* data)
 {
 	OpenGLAPI::SetTexture(1, GL_TEXTURE_3D, _lightmapTexture);
-	glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA, 512, 512, 64, 0, GL_RED, GL_FLOAT, data);
+	glTexSubImage3D(GL_TEXTURE_3D, 0, x * 16, y * 16, z * 16, 16, 16, 16, GL_RGB, GL_UNSIGNED_BYTE, data);
 }
 
 void OpenGLDrawingContext::SetDPI(rct_drawpixelinfo * dpi)

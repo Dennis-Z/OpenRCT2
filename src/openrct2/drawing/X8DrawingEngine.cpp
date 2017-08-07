@@ -166,7 +166,7 @@ void X8DrawingEngine::SetPalette(const rct_palette_entry * palette)
 {
 }
 
-void X8DrawingEngine::UpdateLightmap(float* data)
+void X8DrawingEngine::UpdateLightmap(uint8 x, uint8 y, uint8 z, uint8* data)
 {
 }
 
@@ -749,6 +749,11 @@ void X8DrawingContext::DrawSpriteLit(uint32 image, sint32 x, sint32 y, uint32 te
 void X8DrawingContext::DrawSpriteRawMasked(sint32 x, sint32 y, uint32 maskImage, uint32 colourImage)
 {
     gfx_draw_sprite_raw_masked_software(_dpi, x, y, maskImage, colourImage);
+}
+
+void X8DrawingContext::DrawSpriteRawMaskedLit(sint32 x, sint32 y, uint32 maskImage, uint32 colourImage, float box_size[3], float box_origin[3])
+{
+	gfx_draw_sprite_raw_masked_software(_dpi, x, y, maskImage, colourImage);
 }
 
 void X8DrawingContext::DrawSpriteSolid(uint32 image, sint32 x, sint32 y, uint8 colour)

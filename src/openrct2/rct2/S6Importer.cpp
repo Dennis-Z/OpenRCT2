@@ -50,6 +50,7 @@ extern "C"
     #include "../world/entrance.h"
     #include "../world/map_animation.h"
     #include "../world/park.h"
+	#include "../lighting/vollighting.h"
 }
 
 class ObjectLoadException : public Exception
@@ -426,6 +427,8 @@ public:
         {
             log_error("Found %d disjoint null sprites", disjoint_sprites_count);
         }
+
+		lighting_invalidate_all();
     }
 
     void ImportRides()

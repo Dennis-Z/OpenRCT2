@@ -802,16 +802,16 @@ void path_paint(uint8 direction, uint16 height, rct_map_element * map_element)
 		rct_scenery_entry *sceneryEntry = get_footpath_item_entry(footpath_element_get_path_scenery_index(map_element));
 		if (sceneryEntry->path_bit.flags & PATH_BIT_FLAG_LAMP) {
 			if (!(map_element->properties.path.edges & (1 << 0))) {
-				lighting_apply_light_3d(x, y, (height) / 4);
+				lighting_apply_light_3d(x + 16, y + 16, (height) / 4 + 4);
 			}
 			if (!(map_element->properties.path.edges & (1 << 1))) {
-				lighting_apply_light_3d(x, y, (height) / 4);
+				lighting_apply_light_3d(x + 16, y + 16, (height) / 4 + 4);
 			}
 			if (!(map_element->properties.path.edges & (1 << 2))) {
-				lighting_apply_light_3d(x, y, (height) / 4);
+				lighting_apply_light_3d(x + 16, y + 16, (height) / 4 + 4);
 			}
 			if (!(map_element->properties.path.edges & (1 << 3))) {
-				lighting_apply_light_3d(x, y, (height) / 4);
+				lighting_apply_light_3d(x + 16, y + 16, (height) / 4 + 4);
 			}
 		}
 	}
