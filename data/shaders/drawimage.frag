@@ -51,8 +51,8 @@ void main()
     worldPos.z += min(totalHeight, height) / 8;
     
     vec3 lmPos = worldPos * vec3(2.0, 2.0, 1.0);
-    vec3 sampleVec = lmPos / vec3(512.0, 512.0, 64.0);
-    vec4 lmint = mix(vec4(texture(uLightmap, sampleVec).rgb * 3.5, 1), vec4(1, 1, 1, 1), fPrelight);
+    vec3 sampleVec = lmPos / vec3(512.0, 512.0, 128.0);
+    vec4 lmint = mix(vec4(texture(uLightmap, sampleVec).rgb * 5.0, 1), vec4(1, 1, 1, 1), fPrelight);
 
     // If remap palette used
     if ((fFlags & FLAG_REMAP) != 0)
