@@ -1,9 +1,7 @@
-#include "vollighting.h"
+#include "lighting.h"
 #include "../world/map.h"
 #include "../world/scenery.h"
 #include "../world/footpath.h"
-
-lighting_value gMapLighting[64][512][512];
 
 // how the light will be affected when light passes through a certain plane
 lighting_value lightingAffectorsX[lightmap_size_y][lightmap_size_x][lightmap_size_z];
@@ -20,8 +18,6 @@ lighting_chunk lightingChunks[lightmap_chunks_z][lightmap_chunks_y][lightmap_chu
 const lighting_value black = { .r = 0,.g = 0,.b = 0 };
 const lighting_value ambient = { .r = 20,.g = 20,.b = 20 };
 const lighting_value lit = { .r = 255,.g = 255,.b = 255 };
-
-bool didInit2 = false;
 
 // multiplies @target light with some multiplier light value @apply
 void lighting_multiply(lighting_value* target, const lighting_value apply) {
@@ -163,7 +159,7 @@ void lighting_invalidate_at(sint32 wx, sint32 wy) {
 						sint32 x = wx * 32 + 16;
 						sint32 y = wy * 32 + 16;
 						if (sceneryEntry->path_bit.flags & PATH_BIT_FLAG_LAMP) {
-							int z = map_element->base_height * 2;
+							int z = map_element->base_height * 2 + 6;
 							if (!(map_element->properties.path.edges & (1 << 0))) {
 								lighting_insert_static_light((lighting_light) { .map_x = wx, .map_y = wy, .pos = { .x = x - 14, .y = y, .z = z }, .color = lit });
 							}
@@ -210,11 +206,19 @@ void lighting_invalidate_at(sint32 wx, sint32 wy) {
 	affectorRecomputeQueue[y+1][x+1] = 0b1111;
 }
 
+void lighting_invalidate_around(sint32 wx, sint32 wy) {
+	lighting_invalidate_at(wx, wy);
+	if (wx < lightmap_size_x - 1) lighting_invalidate_at(wx + 1, wy);
+	if (wy < lightmap_size_y - 1) lighting_invalidate_at(wx, wy + 1);
+	if (wx > 0) lighting_invalidate_at(wx - 1, wy);
+	if (wy > 0) lighting_invalidate_at(wx, wy - 1);
+}
+
 void lighting_init() {
 	// reset affectors to 1^3
-	for (int z = 0; z < 64; z++) {
-		for (int y = 0; y < 512; y++) {
-			for (int x = 0; x < 512; x++) {
+	for (int z = 0; z < lightmap_size_z; z++) {
+		for (int y = 0; y < lightmap_size_y; y++) {
+			for (int x = 0; x < lightmap_size_x; x++) {
 				lightingAffectorsX[y][x][z] = lit;
 				lightingAffectorsY[y][x][z] = lit;
 				lightingAffectorsZ[y][x][z] = lit;
@@ -236,8 +240,6 @@ void lighting_init() {
 	}
 
 	lighting_reset();
-
-	didInit2 = false;
 }
 
 void lighting_invalidate_all() {
@@ -372,8 +374,8 @@ void lighting_static_light_cast(lighting_value* target_value, lighting_light lig
 }
 
 lighting_chunk* lighting_update_affectors() {
-	for (int y = 0; y < 512; y++) {
-		for (int x = 0; x < 512; x++) {
+	for (int y = 0; y < lightmap_size_y; y++) {
+		for (int x = 0; x < lightmap_size_x; x++) {
 			uint8 dirs = affectorRecomputeQueue[y][x];
 			if (dirs) {
 				rct_map_element* map_element = map_get_first_element_at(x / 2, y / 2);
@@ -450,17 +452,15 @@ lighting_chunk* lighting_update_affectors() {
 							for (int ox = 0; ox < lightmap_chunk_size; ox++) {
 								chunk->data[oz][oy][ox] = ambient;
 								for (size_t lidx = 0; lidx < chunk->static_lights_count; lidx++) {
-									//chunk->data[oz][oy][ox] = lit;
-									//log_info("got light");
 									lighting_static_light_cast(&chunk->data[oz][oy][ox], chunk->static_lights[lidx], x*lightmap_chunk_size + ox, y*lightmap_chunk_size + oy, z*lightmap_chunk_size + oz);
 								}
-								gMapLighting[z*lightmap_chunk_size + oz][y*lightmap_chunk_size + oy][x*lightmap_chunk_size + ox] = chunk->data[oz][oy][ox];
 							}
 						}
 					}
 					chunk->invalid = false;
 
 					// send chunk data to gpu
+					// TODO: batch them together here
 					return chunk;
 				}
 			}
@@ -471,22 +471,13 @@ lighting_chunk* lighting_update_affectors() {
 }
 
 void lighting_reset() {
-	for (int y = 0; y < 512; y++) {
-		for (int x = 0; x < 512; x++) {
-			if (y < 256 && x < 256)
-				affectorRecomputeQueue[y][x] = 0b1111;
-
-			for (int z = 0; z < 64; z++) {
-				gMapLighting[z][y][x] = ambient;
-			}
+	for (int y = 0; y < MAXIMUM_MAP_SIZE_PRACTICAL; y++) {
+		for (int x = 0; x < MAXIMUM_MAP_SIZE_PRACTICAL; x++) {
+			affectorRecomputeQueue[y][x] = 0b1111;
 		}
 	}
 }
 
 lighting_chunk* lighting_update() {
-	//if (!lighting_update_affectors()) return 0;
-	//didInit2 = true;
-	//log_info("upd ltn");
-	//return (uint8*)&gMapLighting[0][0][0];
 	return lighting_update_affectors();
 }

@@ -23,9 +23,9 @@ extern "C"
     #include "scenery.h"
     #include "map.h"
     #include "park.h"
+	#include "lighting.h"
     #include "../cheats.h"
     #include "../ride/track_design.h"
-	#include "../lighting/vollighting.h"
 }
 
 static money32 SmallSceneryRemove(sint16 x, sint16 y, sint8 baseHeight, uint8 quadrant, uint8 sceneryType, uint8 flags)

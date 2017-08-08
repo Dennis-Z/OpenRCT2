@@ -50,7 +50,7 @@ extern "C"
     #include "../world/entrance.h"
     #include "../world/map_animation.h"
     #include "../world/park.h"
-	#include "../lighting/vollighting.h"
+	#include "../world/lighting.h"
 }
 
 class ObjectLoadException : public Exception

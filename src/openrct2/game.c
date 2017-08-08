@@ -60,7 +60,7 @@
 #include "world/scenery.h"
 #include "world/sprite.h"
 #include "world/water.h"
-#include "lighting/vollighting.h"
+#include "world/lighting.h"
 
 #define NUMBER_OF_AUTOSAVES_TO_KEEP 9
 

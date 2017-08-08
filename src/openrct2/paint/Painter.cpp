@@ -29,7 +29,7 @@ extern "C"
     #include "../interface/console.h"
     #include "../intro.h"
     #include "../localisation/localisation.h"
-	#include "../lighting/vollighting.h"
+	#include "../world/lighting.h"
 }
 
 using namespace OpenRCT2;

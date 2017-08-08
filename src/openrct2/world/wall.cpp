@@ -28,6 +28,7 @@ extern "C"
     #include "map.h"
     #include "park.h"
     #include "scenery.h"
+	#include "lighting.h"
 }
 
 /**
@@ -809,6 +810,8 @@ extern "C"
             (*ebp >> 8) & 0xFF,
             *ebx & 0xFF
         );
+
+		lighting_invalidate_at((*eax & 0xFFFF) / 32, (*ecx & 0xFFFF) / 32);
     }
 
     money32 wall_place(sint32 type,
@@ -851,6 +854,8 @@ extern "C"
             *edx & 0xFF,
             *ebx & 0xFF
         );
+
+		lighting_invalidate_at((*eax & 0xFFFF) / 32, (*ecx & 0xFFFF) / 32);
     }
 
     /**

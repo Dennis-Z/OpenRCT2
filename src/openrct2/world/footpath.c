@@ -24,6 +24,7 @@
 #include "../ride/track.h"
 #include "../ride/track_data.h"
 #include "../util/util.h"
+#include "lighting.h"
 
 void footpath_interrupt_peeps(sint32 x, sint32 y, sint32 z);
 void footpath_update_queue_entrance_banner(sint32 x, sint32 y, rct_map_element *mapElement);
@@ -495,6 +496,8 @@ void game_command_place_footpath(sint32 *eax, sint32 *ebx, sint32 *ecx, sint32 *
         *ebx & 0xFF,
         *edi & 0xFF
     );
+
+	lighting_invalidate_around((*eax & 0xFFFF) / 32, (*ecx & 0xFFFF) / 32);
 }
 
 static money32 footpath_place_from_track(sint32 type, sint32 x, sint32 y, sint32 z, sint32 slope, sint32 edges, sint32 flags)
@@ -604,6 +607,8 @@ void game_command_place_footpath_from_track(sint32 *eax, sint32 *ebx, sint32 *ec
         (*ebx >> 8) & 0xF,
         *ebx & 0xFF
         );
+
+	lighting_invalidate_around((*eax & 0xFFFF) / 32, (*ecx & 0xFFFF) / 32);
 }
 
 /**
@@ -613,6 +618,8 @@ void game_command_place_footpath_from_track(sint32 *eax, sint32 *ebx, sint32 *ec
 void game_command_remove_footpath(sint32 *eax, sint32 *ebx, sint32 *ecx, sint32 *edx, sint32 *esi, sint32 *edi, sint32 *ebp)
 {
     *ebx = footpath_remove_real((*eax & 0xFFFF), (*ecx & 0xFFFF), (*edx & 0xFF), (*ebx & 0xFF));
+
+	lighting_invalidate_around((*eax & 0xFFFF) / 32, (*ecx & 0xFFFF) / 32);
 }
 
 money32 footpath_place(sint32 type, sint32 x, sint32 y, sint32 z, sint32 slope, sint32 flags)

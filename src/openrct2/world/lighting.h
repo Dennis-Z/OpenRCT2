@@ -5,7 +5,7 @@
 
 #define lightmap_size_x 512
 #define lightmap_size_y 512
-#define lightmap_size_z 64
+#define lightmap_size_z 128
 #define lightmap_chunk_size 16
 #define lightmap_chunks_x (lightmap_size_x / lightmap_chunk_size)
 #define lightmap_chunks_y (lightmap_size_y / lightmap_chunk_size)
@@ -38,5 +38,6 @@ typedef struct lighting_chunk {
 void lighting_init();
 void lighting_reset();
 void lighting_invalidate_at(sint32 x, sint32 y);
+void lighting_invalidate_around(sint32 x, sint32 y);
 void lighting_invalidate_all();
 lighting_chunk* lighting_update();
