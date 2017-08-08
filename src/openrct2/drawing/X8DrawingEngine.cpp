@@ -736,24 +736,14 @@ void X8DrawingContext::DrawLine(uint32 colour, sint32 x1, sint32 y1, sint32 x2, 
     gfx_draw_line_software(_dpi, x1, y1, x2, y2, colour);
 }
 
-void X8DrawingContext::DrawSprite(uint32 image, sint32 x, sint32 y, uint32 tertiaryColour)
+void X8DrawingContext::DrawSprite(uint32 image, sint32 x, sint32 y, uint32 tertiaryColour, LightingData lightingData)
 {
     gfx_draw_sprite_software(_dpi, image, x, y, tertiaryColour);
 }
 
-void X8DrawingContext::DrawSpriteLit(uint32 image, sint32 x, sint32 y, uint32 tertiaryColour, float box_size[3], float box_origin[3])
-{
-	gfx_draw_sprite_software(_dpi, image, x, y, tertiaryColour);
-}
-
-void X8DrawingContext::DrawSpriteRawMasked(sint32 x, sint32 y, uint32 maskImage, uint32 colourImage)
+void X8DrawingContext::DrawSpriteRawMasked(sint32 x, sint32 y, uint32 maskImage, uint32 colourImage, LightingData lightingData)
 {
     gfx_draw_sprite_raw_masked_software(_dpi, x, y, maskImage, colourImage);
-}
-
-void X8DrawingContext::DrawSpriteRawMaskedLit(sint32 x, sint32 y, uint32 maskImage, uint32 colourImage, float box_size[3], float box_origin[3])
-{
-	gfx_draw_sprite_raw_masked_software(_dpi, x, y, maskImage, colourImage);
 }
 
 void X8DrawingContext::DrawSpriteSolid(uint32 image, sint32 x, sint32 y, uint8 colour)

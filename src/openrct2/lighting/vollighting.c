@@ -163,7 +163,7 @@ void lighting_invalidate_at(sint32 wx, sint32 wy) {
 						sint32 x = wx * 32 + 16;
 						sint32 y = wy * 32 + 16;
 						if (sceneryEntry->path_bit.flags & PATH_BIT_FLAG_LAMP) {
-							int z = map_element->base_height * 2 + 6;
+							int z = map_element->base_height * 2;
 							if (!(map_element->properties.path.edges & (1 << 0))) {
 								lighting_insert_static_light((lighting_light) { .map_x = wx, .map_y = wy, .pos = { .x = x - 14, .y = y, .z = z }, .color = lit });
 							}
@@ -363,8 +363,6 @@ void lighting_static_light_cast(lighting_value* target_value, lighting_light lig
 	sint32 w_z = pz * 2 + 1;
 	float distpot = sqrt((w_x - light.pos.x)*(w_x - light.pos.x) + (w_y - light.pos.y)*(w_y - light.pos.y) + (w_z - light.pos.z)*(w_z - light.pos.z) * 4 * 4);
 	float intensity = 1.0f - distpot / (range * 12.0f);
-	//intensity = 1.0f;
-	//log_info("cast int %f, %d, %d", intensity, w_y, light.pos.y);
 	if (intensity > 0) {
 		rct_xyz16 target = { .x = px,.y = py,.z = pz };
 		intensity *= 10;
@@ -483,54 +481,6 @@ void lighting_reset() {
 			}
 		}
 	}
-	//lighting_update_affectors();
-}
-
-void lighting_compute_skylight(sint32 x, sint32 y) {
-	if (didInit2) return;
-	/*rct_map_element * mapElement = map_get_first_element_at(x, y);
-	if (mapElement) {
-	float lght = 0.4f;
-	for (int z = 0; z < mapElement->base_height; z++) {
-	gMapLighting[z][y][x] = lght;
-	}
-	for (int z = mapElement->base_height; z < 50; z++) {
-	gMapLighting[z][y][x] = lght;
-	if (lght < 1) {
-	lght += 0.05f;
-	}
-	}
-	}*/
-	//for (int z = 0; z < 50; z++) {
-	//	gMapLighting[z][y][x] = ambient;
-	//}
-}
-
-void lighting_apply_light_3d(sint32 x, sint32 y, sint32 z) {
-	/*if (didInit2) return;
-	sint32 range = 11;
-	log_info("create_light at %d %d %d", x, y, z);
-	sint32 lm_x = (x) / 16;
-	sint32 lm_y = (y) / 16;
-	sint32 lm_z = (z) / 2;
-	rct_xyz32 source = { .x = x,.y = y,.z = z };
-	for (int pz = max(0, lm_z - range * 2); pz <= min(63, lm_z + range * 2); pz++) {
-		for (int py = max(0, lm_y - range); py <= min(511, lm_y + range); py++) {
-			for (int px = max(0, lm_x - range); px <= min(511, lm_x + range); px++) {
-				sint32 w_x = px * 16 + 8;
-				sint32 w_y = py * 16 + 8;
-				sint32 w_z = pz * 2 + 1;
-				float distpot = sqrt((w_x - x)*(w_x - x) + (w_y - y)*(w_y - y) + (w_z - z)*(w_z - z) * 4 * 4);
-				float intensity = 1.0f - distpot / (range * 12.0f);
-				if (intensity > 0) {
-					rct_xyz16 target = { .x = px,.y = py,.z = pz };
-					intensity *= 10;
-					lighting_value source_value = { .r = intensity, .g = intensity, .b = intensity };
-					lighting_add(&gMapLighting[pz][py][px], lighting_raycast(source_value, source, target));
-				}
-			}
-		}
-	}*/
 }
 
 lighting_chunk* lighting_update() {

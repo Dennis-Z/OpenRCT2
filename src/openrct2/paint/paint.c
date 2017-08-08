@@ -908,6 +908,23 @@ void paint_draw_structs(rct_drawpixelinfo * dpi, paint_struct * ps, uint32 viewF
     }
 }
 
+LightingData get_lighting_data(paint_struct* ps) {
+	rct_xyz16 box_origin = { .x = ps->bound_box_x_end,.y = ps->bound_box_y_end,.z = ps->bound_box_z };
+	rct_xyz16 frontTop = { .x = ps->bound_box_x_end,.y = ps->bound_box_y_end,.z = ps->bound_box_z_end };
+	rct_xy16 screenCoordFrontTop = coordinate_3d_to_2d(&frontTop, get_current_rotation());
+	rct_xyz16 frontBottom = { .x = ps->bound_box_x_end,.y = ps->bound_box_y_end,.z = ps->bound_box_z };
+	rct_xy16 screenCoordFrontBottom = coordinate_3d_to_2d(&frontBottom, get_current_rotation());
+
+	return (LightingData) {
+		.prelight = 0.0f,
+		.bbox_origin_px_x = screenCoordFrontBottom.x,
+		.bbox_origin_px_y = screenCoordFrontBottom.y,
+		.bbox_upperfront_px_y = screenCoordFrontTop.y, // -4 because the bbox is always 1 too low for some reason
+		.bbox_origin_3d = { box_origin.x / 32.0f, box_origin.y / 32.0f, box_origin.z / 8.0f }
+	};
+}
+
+
 /**
  *
  *  rct2: 0x00688596
@@ -920,21 +937,11 @@ static void paint_attached_ps(rct_drawpixelinfo * dpi, paint_struct * ps, uint32
         sint16 x = attached_ps->x + ps->x;
         sint16 y = attached_ps->y + ps->y;
 
-		rct_xyz16 box_origin = { .x = ps->bound_box_x_end,.y = ps->bound_box_y_end,.z = ps->bound_box_z };
-		float box_real_origin_cv[3] = { box_origin.x / 32.0f, box_origin.y / 32.0f, box_origin.z / 8.0f };
-
-		rct_xyz16 frontTop = { .x = ps->bound_box_x_end,.y = ps->bound_box_y_end,.z = ps->bound_box_z_end };
-		rct_xy16 screenCoordFrontTop = coordinate_3d_to_2d(&frontTop, get_current_rotation());
-		rct_xyz16 frontBottom = { .x = ps->bound_box_x_end,.y = ps->bound_box_y_end,.z = ps->bound_box_z };
-		rct_xy16 screenCoordFrontBottom = coordinate_3d_to_2d(&frontBottom, get_current_rotation());
-
-		float box_projdata[3] = { screenCoordFrontBottom.x, screenCoordFrontBottom.y, screenCoordFrontTop.y - 4 }; // -4 because the bbox is always 1 too low for some reason
-
         uint32 imageId = paint_ps_colourify_image(attached_ps->image_id, ps->sprite_type, viewFlags);
         if (attached_ps->flags & PAINT_STRUCT_FLAG_IS_MASKED) {
-            gfx_draw_sprite_raw_masked_lit(dpi, x, y, imageId, attached_ps->colour_image_id, box_projdata, box_real_origin_cv);
+            gfx_draw_sprite_raw_masked_lit(dpi, x, y, imageId, attached_ps->colour_image_id, get_lighting_data(ps));
         } else {
-            gfx_draw_sprite_lit(dpi, imageId, x, y, ps->tertiary_colour, box_projdata, box_real_origin_cv);
+            gfx_draw_sprite_lit(dpi, imageId, x, y, ps->tertiary_colour, get_lighting_data(ps));
         }
     }
 }
@@ -990,20 +997,10 @@ static void paint_ps_image_with_bounding_boxes(rct_drawpixelinfo * dpi, paint_st
 
 static void paint_ps_image(rct_drawpixelinfo * dpi, paint_struct * ps, uint32 imageId, sint16 x, sint16 y)
 {
-	rct_xyz16 box_origin = { .x = ps->bound_box_x_end,.y = ps->bound_box_y_end,.z = ps->bound_box_z };
-	float box_real_origin_cv[3] = { box_origin.x / 32.0f, box_origin.y / 32.0f, box_origin.z / 8.0f };
-
-	rct_xyz16 frontTop = { .x = ps->bound_box_x_end,.y = ps->bound_box_y_end,.z = ps->bound_box_z_end };
-	rct_xy16 screenCoordFrontTop = coordinate_3d_to_2d(&frontTop, get_current_rotation());
-	rct_xyz16 frontBottom = { .x = ps->bound_box_x_end,.y = ps->bound_box_y_end,.z = ps->bound_box_z };
-	rct_xy16 screenCoordFrontBottom = coordinate_3d_to_2d(&frontBottom, get_current_rotation());
-
-	float box_projdata[3] = { screenCoordFrontBottom.x, screenCoordFrontBottom.y, screenCoordFrontBottom.y - screenCoordFrontTop.y < 4 ? screenCoordFrontBottom.y : screenCoordFrontTop.y - 4 }; // -4 because the bbox is always 1 too low for some reason
-
     if (ps->flags & PAINT_STRUCT_FLAG_IS_MASKED) {
-        gfx_draw_sprite_raw_masked_lit(dpi, x, y, imageId, ps->colour_image_id, box_projdata, box_real_origin_cv);
+        gfx_draw_sprite_raw_masked_lit(dpi, x, y, imageId, ps->colour_image_id, get_lighting_data(ps));
     } else {
-        gfx_draw_sprite_lit(dpi, imageId, x, y, ps->tertiary_colour, box_projdata, box_real_origin_cv);
+        gfx_draw_sprite_lit(dpi, imageId, x, y, ps->tertiary_colour, get_lighting_data(ps));
     }
 }
 

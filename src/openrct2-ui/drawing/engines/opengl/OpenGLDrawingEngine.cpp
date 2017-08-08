@@ -210,10 +210,8 @@ public:
     void FillRect(uint32 colour, sint32 x, sint32 y, sint32 w, sint32 h) override;
     void FilterRect(FILTER_PALETTE_ID palette, sint32 left, sint32 top, sint32 right, sint32 bottom) override;
     void DrawLine(uint32 colour, sint32 x1, sint32 y1, sint32 x2, sint32 y2) override;
-    void DrawSprite(uint32 image, sint32 x, sint32 y, uint32 tertiaryColour) override;
-	void DrawSpriteLit(uint32 image, sint32 x, sint32 y, uint32 tertiaryColour, float box_size[3], float box_origin[3]) override;
-	void DrawSpriteRawMasked(sint32 x, sint32 y, uint32 maskImage, uint32 colourImage) override;
-	void DrawSpriteRawMaskedLit(sint32 x, sint32 y, uint32 maskImage, uint32 colourImage, float box_size[3], float box_origin[3]) override;
+    void DrawSprite(uint32 image, sint32 x, sint32 y, uint32 tertiaryColour, LightingData lightingData) override;
+	void DrawSpriteRawMasked(sint32 x, sint32 y, uint32 maskImage, uint32 colourImage, LightingData lightingData) override;
     void DrawSpriteSolid(uint32 image, sint32 x, sint32 y, uint8 colour) override;
     void DrawGlyph(uint32 image, sint32 x, sint32 y, uint8 * palette) override;
 	void UpdateLightmap(uint8 x, uint8 y, uint8 z, uint8* data) override;
@@ -709,7 +707,7 @@ void OpenGLDrawingContext::DrawLine(uint32 colour, sint32 x1, sint32 y1, sint32 
     FlushCommandBuffers();
 }
 
-void OpenGLDrawingContext::DrawSprite(uint32 image, sint32 x, sint32 y, uint32 tertiaryColour)
+void OpenGLDrawingContext::DrawSprite(uint32 image, sint32 x, sint32 y, uint32 tertiaryColour, LightingData lightingData)
 {
     sint32 g1Id = image & 0x7FFFF;
     rct_g1_element * g1Element = gfx_get_g1_element(g1Id);
@@ -727,7 +725,7 @@ void OpenGLDrawingContext::DrawSprite(uint32 image, sint32 x, sint32 y, uint32 t
             zoomedDPI.pitch = _dpi->pitch;
             zoomedDPI.zoom_level = _dpi->zoom_level - 1;
             SetDPI(&zoomedDPI);
-            DrawSprite((image & 0xE0000000) | (g1Id - g1Element->zoomed_offset), x >> 1, y >> 1, tertiaryColour);
+            DrawSprite((image & 0xE0000000) | (g1Id - g1Element->zoomed_offset), x >> 1, y >> 1, tertiaryColour, lightingData);
             return;
         }
         if (g1Element->flags & (1 << 5))
@@ -822,9 +820,9 @@ void OpenGLDrawingContext::DrawSprite(uint32 image, sint32 x, sint32 y, uint32 t
     command.bounds = { left, top, right, bottom };
     command.mask = 0;
     command.flags = 0;
-	command.prelight = 1.0f;
-	command.worldBoxOrigin = { 0.0f, 0.0f, 0.0f };
-	command.worldBoxSize = { 0.0f, 0.0f, 0.0f };
+	command.prelight = lightingData.prelight;
+	command.worldBoxSize = { lightingData.bbox_origin_px_x + _offsetX, lightingData.bbox_origin_px_y + _offsetY, lightingData.bbox_upperfront_px_y + _offsetY };
+	command.worldBoxOrigin = { lightingData.bbox_origin_3d[0], lightingData.bbox_origin_3d[1], lightingData.bbox_origin_3d[2] };
 
     if (special)
     {
@@ -843,142 +841,7 @@ void OpenGLDrawingContext::DrawSprite(uint32 image, sint32 x, sint32 y, uint32 t
     _commandBuffers.images.emplace_back(std::move(command));
 }
 
-void OpenGLDrawingContext::DrawSpriteLit(uint32 image, sint32 x, sint32 y, uint32 tertiaryColour, float box_size[3], float box_origin[3])
-{
-	sint32 g1Id = image & 0x7FFFF;
-	rct_g1_element * g1Element = gfx_get_g1_element(g1Id);
-
-	if (_dpi->zoom_level != 0)
-	{
-		if (g1Element->flags & (1 << 4))
-		{
-			rct_drawpixelinfo zoomedDPI;
-			zoomedDPI.bits = _dpi->bits;
-			zoomedDPI.x = _dpi->x >> 1;
-			zoomedDPI.y = _dpi->y >> 1;
-			zoomedDPI.height = _dpi->height >> 1;
-			zoomedDPI.width = _dpi->width >> 1;
-			zoomedDPI.pitch = _dpi->pitch;
-			zoomedDPI.zoom_level = _dpi->zoom_level - 1;
-			SetDPI(&zoomedDPI);
-			DrawSprite((image & 0xE0000000) | (g1Id - g1Element->zoomed_offset), x >> 1, y >> 1, tertiaryColour);
-			return;
-		}
-		if (g1Element->flags & (1 << 5))
-		{
-			return;
-		}
-	}
-
-	uint8 zoomLevel = (1 << _dpi->zoom_level);
-
-	sint32 drawOffsetX = g1Element->x_offset;
-	sint32 drawOffsetY = g1Element->y_offset;
-	sint32 drawWidth = g1Element->width;
-	sint32 drawHeight = g1Element->height;
-
-	sint32 left = x + drawOffsetX;
-	sint32 top = y + drawOffsetY;
-
-	sint32 zoom_mask = 0xFFFFFFFF << _dpi->zoom_level;
-	if (_dpi->zoom_level && g1Element->flags & G1_FLAG_RLE_COMPRESSION) {
-		top -= ~zoom_mask;
-	}
-
-	if (!(g1Element->flags & G1_FLAG_RLE_COMPRESSION)) {
-		top &= zoom_mask;
-		left += ~zoom_mask;
-	}
-
-	left &= zoom_mask;
-
-	sint32 right = left + drawWidth;
-	sint32 bottom = top + drawHeight;
-
-	if (_dpi->zoom_level && g1Element->flags & G1_FLAG_RLE_COMPRESSION) {
-		bottom += top & ~zoom_mask;
-	}
-
-	if (left > right)
-	{
-		std::swap(left, right);
-	}
-	if (top > bottom)
-	{
-		std::swap(top, bottom);
-	}
-
-	left -= _dpi->x;
-	top -= _dpi->y;
-	right -= _dpi->x;
-	bottom -= _dpi->y;
-
-	left /= zoomLevel;
-	top /= zoomLevel;
-	right /= zoomLevel;
-	bottom /= zoomLevel;
-
-	left += _clipLeft;
-	top += _clipTop;
-	right += _clipLeft;
-	bottom += _clipTop;
-
-	auto texture = _textureCache->GetOrLoadImageTexture(image);
-
-	bool special = false;
-	if (!(image & IMAGE_TYPE_REMAP_2_PLUS) && (image & IMAGE_TYPE_REMAP)) {
-		if (((image >> 19) & 0x7F) == 32) {
-			special = true;
-		}
-	}
-
-	if (!((image & IMAGE_TYPE_REMAP_2_PLUS) && !(image & IMAGE_TYPE_REMAP))) {
-		tertiaryColour = 0;
-	}
-
-	auto texture2 = _textureCache->GetOrLoadPaletteTexture(image, tertiaryColour, special);
-
-	DrawImageCommand command;
-
-	//log_info("clip stuff %d %d %d %d", left, top, right, bottom);
-	command.clip = { _clipLeft, _clipTop, _clipRight, _clipBottom };
-	command.texColourAtlas = texture.index;
-	command.texColourBounds = texture.normalizedBounds;
-	command.texMaskAtlas = 0;
-	command.texMaskBounds = { 0.0f, 0.0f, 0.0f };
-	command.texPaletteAtlas = texture2.index;
-	command.texPaletteBounds = {
-		texture2.normalizedBounds.x,
-		texture2.normalizedBounds.y,
-		(texture2.normalizedBounds.z - texture2.normalizedBounds.x) / (float)(texture2.bounds.z - texture2.bounds.x),
-		(texture2.normalizedBounds.w - texture2.normalizedBounds.y) / (float)(texture2.bounds.w - texture2.bounds.y)
-	};
-	command.colour = { 0.0f, 0.0f, 0.0f };
-	command.bounds = { left, top, right, bottom };
-	command.mask = 0;
-	command.flags = 0;
-	command.prelight = 0.0f;
-	command.worldBoxOrigin = { box_origin[0], box_origin[1], box_origin[2] };
-	command.worldBoxSize = { box_size[0] + _offsetX, box_size[1] + _offsetY, box_size[2] + _offsetY };
-
-	if (special)
-	{
-		command.flags |= DrawImageCommand::FLAG_TRANSPARENT_SPECIAL;
-	}
-
-	if (image & IMAGE_TYPE_TRANSPARENT)
-	{
-		command.flags |= DrawImageCommand::FLAG_TRANSPARENT;
-	}
-	else if (image & (IMAGE_TYPE_REMAP_2_PLUS | IMAGE_TYPE_REMAP))
-	{
-		command.flags |= DrawImageCommand::FLAG_REMAP;
-	}
-
-	_commandBuffers.images.emplace_back(std::move(command));
-}
-
-void OpenGLDrawingContext::DrawSpriteRawMasked(sint32 x, sint32 y, uint32 maskImage, uint32 colourImage)
+void OpenGLDrawingContext::DrawSpriteRawMasked(sint32 x, sint32 y, uint32 maskImage, uint32 colourImage, LightingData lightingData)
 {
     rct_g1_element * g1ElementMask = gfx_get_g1_element(maskImage & 0x7FFFF);
     rct_g1_element * g1ElementColour = gfx_get_g1_element(colourImage & 0x7FFFF);
@@ -1035,75 +898,11 @@ void OpenGLDrawingContext::DrawSpriteRawMasked(sint32 x, sint32 y, uint32 maskIm
     command.colour = {0.0f, 0.0f, 0.0f};
     command.bounds = { left, top, right, bottom };
     command.mask = 1;
-	command.prelight = 1.0f;
-	command.worldBoxOrigin = { 0.0f, 0.0f, 0.0f };
-	command.worldBoxSize = { 0.0f, 0.0f, 0.0f };
+	command.prelight = lightingData.prelight;
+	command.worldBoxSize = { lightingData.bbox_origin_px_x + _offsetX, lightingData.bbox_origin_px_y + _offsetY, lightingData.bbox_upperfront_px_y + _offsetY };
+	command.worldBoxOrigin = { lightingData.bbox_origin_3d[0], lightingData.bbox_origin_3d[1], lightingData.bbox_origin_3d[2] };
 
     _commandBuffers.images.emplace_back(std::move(command));
-}
-
-void OpenGLDrawingContext::DrawSpriteRawMaskedLit(sint32 x, sint32 y, uint32 maskImage, uint32 colourImage, float box_size[3], float box_origin[3])
-{
-	rct_g1_element * g1ElementMask = gfx_get_g1_element(maskImage & 0x7FFFF);
-	rct_g1_element * g1ElementColour = gfx_get_g1_element(colourImage & 0x7FFFF);
-
-	auto textureMask = _textureCache->GetOrLoadImageTexture(maskImage);
-	auto textureColour = _textureCache->GetOrLoadImageTexture(colourImage);
-
-	uint8 zoomLevel = (1 << _dpi->zoom_level);
-
-	sint32 drawOffsetX = g1ElementMask->x_offset;
-	sint32 drawOffsetY = g1ElementMask->y_offset;
-	sint32 drawWidth = Math::Min(g1ElementMask->width, g1ElementColour->width);
-	sint32 drawHeight = Math::Min(g1ElementMask->height, g1ElementColour->height);
-
-	sint32 left = x + drawOffsetX;
-	sint32 top = y + drawOffsetY;
-	sint32 right = left + drawWidth;
-	sint32 bottom = top + drawHeight;
-
-	if (left > right)
-	{
-		std::swap(left, right);
-	}
-	if (top > bottom)
-	{
-		std::swap(top, bottom);
-	}
-
-	left -= _dpi->x;
-	top -= _dpi->y;
-	right -= _dpi->x;
-	bottom -= _dpi->y;
-
-	left /= zoomLevel;
-	top /= zoomLevel;
-	right /= zoomLevel;
-	bottom /= zoomLevel;
-
-	left += _clipLeft;
-	top += _clipTop;
-	right += _clipLeft;
-	bottom += _clipTop;
-
-	DrawImageCommand command;
-
-	command.clip = { _clipLeft, _clipTop, _clipRight, _clipBottom };
-	command.texColourAtlas = textureColour.index;
-	command.texColourBounds = textureColour.normalizedBounds;
-	command.texMaskAtlas = textureMask.index;
-	command.texMaskBounds = textureMask.normalizedBounds;
-	command.texPaletteAtlas = 0;
-	command.texPaletteBounds = { 0.0f, 0.0f, 0.0f };
-	command.flags = 0;
-	command.colour = { 0.0f, 0.0f, 0.0f };
-	command.bounds = { left, top, right, bottom };
-	command.mask = 1;
-	command.prelight = 0.0f;
-	command.worldBoxOrigin = { box_origin[0], box_origin[1], box_origin[2] };
-	command.worldBoxSize = { box_size[0] + _offsetX, box_size[1] + _offsetY, box_size[2] + _offsetY };
-
-	_commandBuffers.images.emplace_back(std::move(command));
 }
 
 void OpenGLDrawingContext::DrawSpriteSolid(uint32 image, sint32 x, sint32 y, uint8 colour)

@@ -51,19 +51,9 @@ void Painter::Paint(IDrawingEngine * de)
     }
     else
     {
-		//lighting_reset();
-
-		/*for (int y = 0; y < 356; y++) {
-			for (int x = 0; x < 356; x++) {
-				lighting_compute_skylight(x, y);
-			}
-		}*/
-
         de->PaintWindows();
-
-		//lighting_apply_light(30, 30);
-		//lighting_apply_light_3d(30 * 32, 30 * 32, 22 * 2);
-
+		
+		// TODO: inefficient
 		for (int i = 0; i < 10; i++) {
 			lighting_chunk* changed = lighting_update();
 			if (changed) {

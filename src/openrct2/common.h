@@ -296,4 +296,21 @@ assert_struct_size(registers, 7 * 4);
 
 #define UNUSED(x)  ((void)(x))
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+	// TODO: this really shouldn't be here
+	typedef struct LightingData {
+		float prelight;
+		float bbox_origin_px_x;
+		float bbox_origin_px_y;
+		float bbox_upperfront_px_y;
+		float bbox_origin_3d[3];
+	} LightingData;
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif
