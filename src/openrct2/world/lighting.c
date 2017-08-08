@@ -199,6 +199,7 @@ void lighting_invalidate_at(sint32 wx, sint32 wy) {
 		lightingAffectorsZ[y + 1][x + 1][z] = lit;
 	}
 
+	// TODO: should queue adjacent affectors too in the correct direction!
 	// queue rebuilding affectors
 	affectorRecomputeQueue[y][x] = 0b1111;
 	affectorRecomputeQueue[y+1][x] = 0b1111;
