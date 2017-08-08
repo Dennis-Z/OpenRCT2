@@ -334,7 +334,7 @@ static money32 footpath_element_update(sint32 x, sint32 y, rct_map_element *mapE
     return gParkFlags & PARK_FLAGS_NO_MONEY ? 0 : gFootpathPrice;
 }
 
-static money32 footpath_place_real(sint32 type, sint32 x, sint32 y, sint32 z, sint32 slope, sint32 flags, uint8 pathItemType)
+static money32 footpath_place_real(sint32 type, sint32 x, sint32 y, sint32 z, sint32 slope, sint32 flags, uint8 pathItemType, bool clearDirection, sint32 direction)
 {
     rct_map_element *mapElement;
 
@@ -386,6 +386,18 @@ static money32 footpath_place_real(sint32 type, sint32 x, sint32 y, sint32 z, si
         coord.y = y + 16;
         coord.z = map_element_height(coord.x, coord.y);
         network_set_player_last_action_coord(network_get_player_index(game_command_playerid), coord);
+
+        if (clearDirection && !gCheatsDisableClearanceChecks)
+        {
+            direction = direction & 0xF;
+            // It is possible, let's remove walls between the old and new piece of path
+            wall_remove_intersecting_walls(x, y, z, z + 4 + ((slope & 0xf) ? 2 : 0), direction ^ 2);
+            wall_remove_intersecting_walls(
+                x - TileDirectionDelta[direction].x,
+                y - TileDirectionDelta[direction].y,
+                z, z + 4, direction
+            );
+        }
     }
 
     footpath_provisional_remove();
@@ -494,7 +506,9 @@ void game_command_place_footpath(sint32 *eax, sint32 *ebx, sint32 *ecx, sint32 *
         *edx & 0xFF,
         (*ebx >> 8) & 0xFF,
         *ebx & 0xFF,
-        *edi & 0xFF
+        *edi & 0xFF,
+        (*ebp & FOOTPATH_CLEAR_DIRECTIONAL) >> 8,
+        *ebp & 0xFF
     );
 
 	lighting_invalidate_around((*eax & 0xFFFF) / 32, (*ecx & 0xFFFF) / 32);
@@ -625,6 +639,11 @@ void game_command_remove_footpath(sint32 *eax, sint32 *ebx, sint32 *ecx, sint32 
 money32 footpath_place(sint32 type, sint32 x, sint32 y, sint32 z, sint32 slope, sint32 flags)
 {
     return game_do_command(x, (slope << 8) | flags, y, (type << 8) | z, GAME_COMMAND_PLACE_PATH, 0, 0);
+}
+
+money32 footpath_place_remove_intersecting(sint32 type, sint32 x, sint32 y, sint32 z, sint32 slope, sint32 flags, sint32 direction)
+{
+    return game_do_command(x, (slope << 8) | flags, y, (type << 8) | z, GAME_COMMAND_PLACE_PATH, 0, FOOTPATH_CLEAR_DIRECTIONAL | direction);
 }
 
 void footpath_remove(sint32 x, sint32 y, sint32 z, sint32 flags)
@@ -1215,7 +1234,7 @@ static void loc_6A6D7E(
                 break;
             case MAP_ELEMENT_TYPE_ENTRANCE:
                 if (z == mapElement->base_height) {
-                    if (entrance_has_direction(mapElement, ((direction - map_element_get_direction(mapElement)) % 4) ^ 2)) {
+                    if (entrance_has_direction(mapElement, ((direction - map_element_get_direction(mapElement)) & MAP_ELEMENT_DIRECTION_MASK) ^ 2)) {
                         if (query) {
                             neighbour_list_push(neighbourList, 8, direction, mapElement->properties.entrance.ride_index,  mapElement->properties.entrance.index);
                         } else {
@@ -1295,7 +1314,7 @@ static void loc_6A6C85(
         if (!(FlatRideTrackSequenceProperties[trackType][trackSequence] & TRACK_SEQUENCE_FLAG_CONNECTS_TO_PATH)) {
             return;
         }
-        uint16 dx = (direction - map_element_get_direction(mapElement)) % 4;
+        uint16 dx = (direction - map_element_get_direction(mapElement)) & MAP_ELEMENT_DIRECTION_MASK;
         if (!(FlatRideTrackSequenceProperties[trackType][trackSequence] & (1 << dx))) {
             return;
         }

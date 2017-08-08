@@ -281,7 +281,7 @@ sint32 map_element_get_direction(const rct_map_element *element)
 
 sint32 map_element_get_direction_with_offset(const rct_map_element *element, uint8 offset)
 {
-    return ((element->type & MAP_ELEMENT_DIRECTION_MASK) + offset) % 4;
+    return ((element->type & MAP_ELEMENT_DIRECTION_MASK) + offset) & MAP_ELEMENT_DIRECTION_MASK;
 }
 
 sint32 map_element_get_terrain(const rct_map_element *element)
@@ -2887,7 +2887,7 @@ void map_element_set_track_sequence(rct_map_element * mapElement, sint32 trackSe
 
 bool map_element_get_green_light(const rct_map_element * mapElement)
 {
-    return (bool)mapElement->properties.track.sequence & MAP_ELEM_TRACK_SEQUENCE_GREEN_LIGHT;
+    return (mapElement->properties.track.sequence & MAP_ELEM_TRACK_SEQUENCE_GREEN_LIGHT) != 0;
 }
 
 void map_element_set_green_light(rct_map_element * mapElement, bool greenLight)
@@ -2911,7 +2911,7 @@ void map_element_set_brake_booster_speed(rct_map_element *mapElement, sint32 spe
 
 bool map_element_is_taking_photo(const rct_map_element * mapElement)
 {
-    return (bool)mapElement->properties.track.sequence & MAP_ELEM_TRACK_SEQUENCE_TAKING_PHOTO_MASK;
+    return (mapElement->properties.track.sequence & MAP_ELEM_TRACK_SEQUENCE_TAKING_PHOTO_MASK) != 0;
 }
 
 void map_element_set_onride_photo_timeout(rct_map_element * mapElement)
