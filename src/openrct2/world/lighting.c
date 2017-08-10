@@ -423,7 +423,7 @@ void lighting_update_affectors() {
 						}
 						case MAP_ELEMENT_TYPE_WALL: {
 							// do not apply if the wall its direction is not queued
-							if (!(dirs << (1 << map_element_get_direction(map_element)))) {
+							if (!(dirs & (1 << map_element_get_direction(map_element)))) {
 								break;
 							}
 							for (int z = map_element->base_height - 1; z < map_element->clearance_height; z++) {
