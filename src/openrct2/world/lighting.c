@@ -4,16 +4,16 @@
 #include "../world/footpath.h"
 
 // how the light will be affected when light passes through a certain plane
-lighting_value lightingAffectorsX[lightmap_size_y][lightmap_size_x][lightmap_size_z];
-lighting_value lightingAffectorsY[lightmap_size_y][lightmap_size_x][lightmap_size_z];
-lighting_value lightingAffectorsZ[lightmap_size_y][lightmap_size_x][lightmap_size_z];
+lighting_value lightingAffectorsX[LIGHTMAP_SIZE_Y][LIGHTMAP_SIZE_X][LIGHTMAP_SIZE_Z];
+lighting_value lightingAffectorsY[LIGHTMAP_SIZE_Y][LIGHTMAP_SIZE_X][LIGHTMAP_SIZE_Z];
+lighting_value lightingAffectorsZ[LIGHTMAP_SIZE_Y][LIGHTMAP_SIZE_X][LIGHTMAP_SIZE_Z];
 
 // lightmap columns whose lightingAffectors are outdated
-// each element contains a bitmap, each bit identifying if a direction should be recomputed
+// each element contains a bitmap, each bit identifying if a direction should be recomputed (4 bits, 1 << MAP_ELEMENT_DIRECTION_... for each direction)
 // Z is always recomputed
-uint8 affectorRecomputeQueue[lightmap_size_y][lightmap_size_x];
+uint8 affectorRecomputeQueue[LIGHTMAP_SIZE_Y][LIGHTMAP_SIZE_X];
 
-lighting_chunk lightingChunks[lightmap_chunks_z][lightmap_chunks_y][lightmap_chunks_x];
+lighting_chunk lightingChunks[LIGHTMAP_CHUNKS_Z][LIGHTMAP_CHUNKS_Y][LIGHTMAP_CHUNKS_X];
 
 const lighting_value black = { .r = 0,.g = 0,.b = 0 };
 const lighting_value ambient = { .r = 20,.g = 20,.b = 20 };
@@ -114,9 +114,9 @@ void lighting_insert_static_light(const lighting_light light) {
 	sint32 lm_x = light.map_x * 2;
 	sint32 lm_y = light.map_y * 2;
 	sint32 lm_z = light.pos.z / 2;
-	for (int sz = max(0, (lm_z - range * 2) / lightmap_chunk_size); sz <= min(lightmap_chunks_z - 1, (lm_z + range * 2) / lightmap_chunk_size); sz++) {
-		for (int sy = max(0, (lm_y - range) / lightmap_chunk_size); sy <= min(lightmap_chunks_y - 1, (lm_y + range) / lightmap_chunk_size); sy++) {
-			for (int sx = max(0, (lm_x - range) / lightmap_chunk_size); sx <= min(lightmap_chunks_x - 1, (lm_x + range) / lightmap_chunk_size); sx++) {
+	for (int sz = max(0, (lm_z - range * 2) / LIGHTMAP_CHUNK_SIZE); sz <= min(LIGHTMAP_CHUNKS_Z - 1, (lm_z + range * 2) / LIGHTMAP_CHUNK_SIZE); sz++) {
+		for (int sy = max(0, (lm_y - range) / LIGHTMAP_CHUNK_SIZE); sy <= min(LIGHTMAP_CHUNKS_Y - 1, (lm_y + range) / LIGHTMAP_CHUNK_SIZE); sy++) {
+			for (int sx = max(0, (lm_x - range) / LIGHTMAP_CHUNK_SIZE); sx <= min(LIGHTMAP_CHUNKS_X - 1, (lm_x + range) / LIGHTMAP_CHUNK_SIZE); sx++) {
 				lighting_chunk* chunk = &lightingChunks[sz][sy][sx];
 				// TODO: bounds check
 				chunk->static_lights[chunk->static_lights_count++] = light;
@@ -131,9 +131,9 @@ void lighting_invalidate_at(sint32 wx, sint32 wy) {
 	int range = 11;
 	sint32 lm_x = wx * 2;
 	sint32 lm_y = wy * 2;
-	for (int sz = 0; sz < lightmap_chunks_z; sz++) {
-		for (int sy = max(0, (lm_y - range) / lightmap_chunk_size); sy <= min(lightmap_chunks_y - 1, (lm_y + range) / lightmap_chunk_size); sy++) {
-			for (int sx = max(0, (lm_x - range) / lightmap_chunk_size); sx <= min(lightmap_chunks_x - 1, (lm_x + range) / lightmap_chunk_size); sx++) {
+	for (int sz = 0; sz < LIGHTMAP_CHUNKS_Z; sz++) {
+		for (int sy = max(0, (lm_y - range) / LIGHTMAP_CHUNK_SIZE); sy <= min(LIGHTMAP_CHUNKS_Y - 1, (lm_y + range) / LIGHTMAP_CHUNK_SIZE); sy++) {
+			for (int sx = max(0, (lm_x - range) / LIGHTMAP_CHUNK_SIZE); sx <= min(LIGHTMAP_CHUNKS_X - 1, (lm_x + range) / LIGHTMAP_CHUNK_SIZE); sx++) {
 				lighting_chunk* chunk = &lightingChunks[sz][sy][sx];
 				for (size_t lidx = 0; lidx < chunk->static_lights_count; lidx++) {
 					if (chunk->static_lights[lidx].map_x == wx && chunk->static_lights[lidx].map_y == wy) {
@@ -184,7 +184,7 @@ void lighting_invalidate_at(sint32 wx, sint32 wy) {
 	int y = wy * 2;
 
 	// revert values to lit...
-	for (int z = 0; z < lightmap_size_z; z++) {
+	for (int z = 0; z < LIGHTMAP_SIZE_Z; z++) {
 		for (int ulm_y = y; ulm_y <= y + 2; ulm_y++) {
 			for (int ulm_x = x; ulm_x <= x + 2; ulm_x++) {
 				lightingAffectorsX[y][ulm_x][z] = lit;
@@ -199,27 +199,42 @@ void lighting_invalidate_at(sint32 wx, sint32 wy) {
 		lightingAffectorsZ[y + 1][x + 1][z] = lit;
 	}
 
-	// TODO: should queue adjacent affectors too in the correct direction!
 	// queue rebuilding affectors
 	affectorRecomputeQueue[y][x] = 0b1111;
 	affectorRecomputeQueue[y+1][x] = 0b1111;
 	affectorRecomputeQueue[y][x+1] = 0b1111;
 	affectorRecomputeQueue[y+1][x+1] = 0b1111;
+	if (x > 0) { // east
+		affectorRecomputeQueue[y][x - 1] |= 0b0100;
+		affectorRecomputeQueue[y + 1][x - 1] |= 0b0100;
+	}
+	if (y > 0) { // north
+		affectorRecomputeQueue[y - 1][x] |= 0b0010;
+		affectorRecomputeQueue[y - 1][x + 1] |= 0b0010;
+	}
+	if (x < LIGHTMAP_SIZE_X - 2) { // east
+		affectorRecomputeQueue[y][x + 2] |= 0b0001;
+		affectorRecomputeQueue[y + 1][x + 2] |= 0b0001;
+	}
+	if (y < LIGHTMAP_SIZE_Y - 2) { // south
+		affectorRecomputeQueue[y + 2][x] |= 0b1000;
+		affectorRecomputeQueue[y + 2][x + 1] |= 0b1000;
+	}
 }
 
 void lighting_invalidate_around(sint32 wx, sint32 wy) {
 	lighting_invalidate_at(wx, wy);
-	if (wx < lightmap_size_x - 1) lighting_invalidate_at(wx + 1, wy);
-	if (wy < lightmap_size_y - 1) lighting_invalidate_at(wx, wy + 1);
+	if (wx < LIGHTMAP_SIZE_X - 1) lighting_invalidate_at(wx + 1, wy);
+	if (wy < LIGHTMAP_SIZE_Y - 1) lighting_invalidate_at(wx, wy + 1);
 	if (wx > 0) lighting_invalidate_at(wx - 1, wy);
 	if (wy > 0) lighting_invalidate_at(wx, wy - 1);
 }
 
 void lighting_init() {
 	// reset affectors to 1^3
-	for (int z = 0; z < lightmap_size_z; z++) {
-		for (int y = 0; y < lightmap_size_y; y++) {
-			for (int x = 0; x < lightmap_size_x; x++) {
+	for (int z = 0; z < LIGHTMAP_SIZE_Z; z++) {
+		for (int y = 0; y < LIGHTMAP_SIZE_Y; y++) {
+			for (int x = 0; x < LIGHTMAP_SIZE_X; x++) {
 				lightingAffectorsX[y][x][z] = lit;
 				lightingAffectorsY[y][x][z] = lit;
 				lightingAffectorsZ[y][x][z] = lit;
@@ -228,9 +243,9 @@ void lighting_init() {
 	}
 
 	// init chunks
-	for (int z = 0; z < lightmap_chunks_z; z++) {
-		for (int y = 0; y < lightmap_chunks_y; y++) {
-			for (int x = 0; x < lightmap_chunks_x; x++) {
+	for (int z = 0; z < LIGHTMAP_CHUNKS_Z; z++) {
+		for (int y = 0; y < LIGHTMAP_CHUNKS_Y; y++) {
+			for (int x = 0; x < LIGHTMAP_CHUNKS_X; x++) {
 				lightingChunks[z][y][x].invalid = true;
 				lightingChunks[z][y][x].static_lights_count = 0;
 				lightingChunks[z][y][x].x = x;
@@ -374,9 +389,9 @@ void lighting_static_light_cast(lighting_value* target_value, lighting_light lig
 	}
 }
 
-lighting_chunk* lighting_update_affectors() {
-	for (int y = 0; y < lightmap_size_y; y++) {
-		for (int x = 0; x < lightmap_size_x; x++) {
+void lighting_update_affectors() {
+	for (int y = 0; y < LIGHTMAP_SIZE_Y; y++) {
+		for (int x = 0; x < LIGHTMAP_SIZE_X; x++) {
 			uint8 dirs = affectorRecomputeQueue[y][x];
 			if (dirs) {
 				rct_map_element* map_element = map_get_first_element_at(x / 2, y / 2);
@@ -384,56 +399,60 @@ lighting_chunk* lighting_update_affectors() {
 					do {
 						switch (map_element_get_type(map_element))
 						{
-							case MAP_ELEMENT_TYPE_SURFACE: {
-								for (int z = 0; z < map_element->base_height-1; z++) {
-									lightingAffectorsX[y][x][z] = black;
-									lightingAffectorsY[y][x][z] = black;
-									lightingAffectorsX[y][x+1][z] = black;
-									lightingAffectorsY[y+1][x][z] = black;
-									lightingAffectorsZ[y][x][z] = black;
-									lightingAffectorsZ[y][x][z + 1] = black;
-								}
+						case MAP_ELEMENT_TYPE_SURFACE: {
+							for (int z = 0; z < map_element->base_height - 1; z++) {
+								lightingAffectorsX[y][x][z] = black;
+								lightingAffectorsY[y][x][z] = black;
+								lightingAffectorsX[y][x + 1][z] = black;
+								lightingAffectorsY[y + 1][x][z] = black;
+								lightingAffectorsZ[y][x][z] = black;
+								lightingAffectorsZ[y][x][z + 1] = black;
+							}
+							break;
+						}
+						case MAP_ELEMENT_TYPE_SCENERY: {
+							for (int z = map_element->base_height - 1; z < map_element->clearance_height - 1; z++) {
+								lightingAffectorsX[y][x][z] = black;
+								lightingAffectorsY[y][x][z] = black;
+								lightingAffectorsX[y][x + 1][z] = black;
+								lightingAffectorsY[y + 1][x][z] = black;
+								lightingAffectorsZ[y][x][z] = black;
+								lightingAffectorsZ[y][x][z + 1] = black;
+							}
+							break;
+						}
+						case MAP_ELEMENT_TYPE_WALL: {
+							// do not apply if the wall its direction is not queued
+							if (!(dirs << (1 << map_element_get_direction(map_element)))) {
 								break;
 							}
-							case MAP_ELEMENT_TYPE_SCENERY: {
-								for (int z = map_element->base_height - 1; z < map_element->clearance_height - 1; z++) {
-									lightingAffectorsX[y][x][z] = black;
-									lightingAffectorsY[y][x][z] = black;
-									lightingAffectorsX[y][x + 1][z] = black;
-									lightingAffectorsY[y + 1][x][z] = black;
-									lightingAffectorsZ[y][x][z] = black;
-									lightingAffectorsZ[y][x][z + 1] = black;
-								}
-								break;
-							}
-							case MAP_ELEMENT_TYPE_WALL: {
-								for (int z = map_element->base_height - 1; z < map_element->clearance_height; z++) {
-									lighting_value affector = black;
-									if (map_element->properties.wall.type == 54) {
-										uint8 color = map_element->properties.wall.colour_1;
-										if (color >= 44 && color < 144) {
-											affector.r = TransparentColourTable[color - 44][0] * 255;
-											affector.g = TransparentColourTable[color - 44][1] * 255;
-											affector.b = TransparentColourTable[color - 44][2] * 255;
-										}
-									}
-									switch (map_element_get_direction(map_element)) {
-									case MAP_ELEMENT_DIRECTION_NORTH:
-										if (y % 2 == 1) lightingAffectorsY[y + 1][x][z] = affector;
-										break;
-									case MAP_ELEMENT_DIRECTION_SOUTH:
-										if (y % 2 == 0) lightingAffectorsY[y][x][z] = affector;
-										break;
-									case MAP_ELEMENT_DIRECTION_EAST:
-										if (x % 2 == 1) lightingAffectorsX[y][x + 1][z] = affector;
-										break;
-									case MAP_ELEMENT_DIRECTION_WEST:
-										if (x % 2 == 0) lightingAffectorsX[y][x][z] = affector;
-										break;
+							for (int z = map_element->base_height - 1; z < map_element->clearance_height; z++) {
+								lighting_value affector = black;
+								if (map_element->properties.wall.type == 54) {
+									uint8 color = map_element->properties.wall.colour_1;
+									if (color >= 44 && color < 144) {
+										affector.r = TransparentColourTable[color - 44][0] * 255;
+										affector.g = TransparentColourTable[color - 44][1] * 255;
+										affector.b = TransparentColourTable[color - 44][2] * 255;
 									}
 								}
-								break;
+								switch (map_element_get_direction(map_element)) {
+								case MAP_ELEMENT_DIRECTION_NORTH:
+									if (y % 2 == 1) lighting_multiply(&lightingAffectorsY[y + 1][x][z], affector);
+									break;
+								case MAP_ELEMENT_DIRECTION_SOUTH:
+									if (y % 2 == 0) lighting_multiply(&lightingAffectorsY[y][x][z], affector);
+									break;
+								case MAP_ELEMENT_DIRECTION_EAST:
+									if (x % 2 == 1) lighting_multiply(&lightingAffectorsX[y][x + 1][z], affector);
+									break;
+								case MAP_ELEMENT_DIRECTION_WEST:
+									if (x % 2 == 0) lighting_multiply(&lightingAffectorsX[y][x][z], affector);
+									break;
+								}
 							}
+							break;
+						}
 						}
 					} while (!map_element_is_last_for_tile(map_element++));
 				}
@@ -441,34 +460,53 @@ lighting_chunk* lighting_update_affectors() {
 			}
 		}
 	}
+}
 
-	for (int z = 0; z < lightmap_chunks_z; z++) {
-		for (int y = 0; y < lightmap_chunks_y; y++) {
-			for (int x = 0; x < lightmap_chunks_x; x++) {
+void lighting_update_chunk(lighting_chunk* chunk) {
+	for (int oz = 0; oz < LIGHTMAP_CHUNK_SIZE; oz++) {
+		for (int oy = 0; oy < LIGHTMAP_CHUNK_SIZE; oy++) {
+			for (int ox = 0; ox < LIGHTMAP_CHUNK_SIZE; ox++) {
+				chunk->data[oz][oy][ox] = ambient;
+				for (size_t lidx = 0; lidx < chunk->static_lights_count; lidx++) {
+					lighting_static_light_cast(&chunk->data[oz][oy][ox], chunk->static_lights[lidx], chunk->x*LIGHTMAP_CHUNK_SIZE + ox, chunk->y*LIGHTMAP_CHUNK_SIZE + oy, chunk->z*LIGHTMAP_CHUNK_SIZE + oz);
+				}
+			}
+		}
+	}
+	chunk->invalid = false;
+}
+
+lighting_update_batch lighting_update_internal() {
+	// update all pending affectors first
+	lighting_update_affectors();
+
+	lighting_update_batch updated_batch;
+	size_t update_count = 0;
+
+	// recompute invalid chunks until reaching a limit
+	for (int z = 0; z < LIGHTMAP_CHUNKS_Z; z++) {
+		for (int y = 0; y < LIGHTMAP_CHUNKS_Y; y++) {
+			for (int x = 0; x < LIGHTMAP_CHUNKS_X; x++) {
 				if (lightingChunks[z][y][x].invalid) {
-					// rebuild lightmap
+					// recompute this invalid chunk
 					lighting_chunk* chunk = &lightingChunks[z][y][x];
-					for (int oz = 0; oz < lightmap_chunk_size; oz++) {
-						for (int oy = 0; oy < lightmap_chunk_size; oy++) {
-							for (int ox = 0; ox < lightmap_chunk_size; ox++) {
-								chunk->data[oz][oy][ox] = ambient;
-								for (size_t lidx = 0; lidx < chunk->static_lights_count; lidx++) {
-									lighting_static_light_cast(&chunk->data[oz][oy][ox], chunk->static_lights[lidx], x*lightmap_chunk_size + ox, y*lightmap_chunk_size + oy, z*lightmap_chunk_size + oz);
-								}
-							}
-						}
-					}
-					chunk->invalid = false;
+					lighting_update_chunk(chunk);
+					updated_batch.updated_chunks[update_count++] = chunk;
 
-					// send chunk data to gpu
-					// TODO: batch them together here
-					return chunk;
+					// exceeding max update count?
+					if (update_count >= LIGHTING_MAX_CHUNK_UPDATES_PER_FRAME) {
+						goto stop_updating;
+					}
 				}
 			}
 		}
 	}
 
-	return 0;
+stop_updating:
+
+	updated_batch.updated_chunks[update_count] = NULL;
+
+	return updated_batch;
 }
 
 void lighting_reset() {
@@ -479,6 +517,6 @@ void lighting_reset() {
 	}
 }
 
-lighting_chunk* lighting_update() {
-	return lighting_update_affectors();
+lighting_update_batch lighting_update() {
+	return lighting_update_internal();
 }

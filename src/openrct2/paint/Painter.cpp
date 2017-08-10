@@ -53,12 +53,11 @@ void Painter::Paint(IDrawingEngine * de)
     {
         de->PaintWindows();
 		
-		// TODO: inefficient
-		for (int i = 0; i < 10; i++) {
-			lighting_chunk* changed = lighting_update();
-			if (changed) {
-				de->UpdateLightmap(changed->x, changed->y, changed->z, (uint8*)changed->data);
-			}
+		lighting_update_batch update_batch = lighting_update();
+		lighting_chunk** chunk_itr = update_batch.updated_chunks;
+		while (*chunk_itr) {
+			lighting_chunk* chunk = *(chunk_itr++);
+			de->UpdateLightmap(chunk->x, chunk->y, chunk->z, (uint8*)chunk->data);
 		}
 			
         update_palette_effects();
