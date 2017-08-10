@@ -40,6 +40,7 @@
 #include "park.h"
 #include "scenery.h"
 #include "tile_inspector.h"
+#include "lighting.h"
 
 /**
  * Replaces 0x00993CCC, 0x00993CCE
@@ -1698,6 +1699,8 @@ void game_command_set_land_height(sint32 *eax, sint32 *ebx, sint32 *ecx, sint32 
         (*edx >> 8) & 0xFF,
         *edi >> 5
     );
+
+	lighting_invalidate_at((*eax & 0xFFFF) / 32, (*ecx & 0xFFFF) / 32);
 }
 
 static money32 map_set_land_ownership(uint8 flags, sint16 x1, sint16 y1, sint16 x2, sint16 y2, uint8 newOwnership) {

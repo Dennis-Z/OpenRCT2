@@ -52,7 +52,9 @@ void main()
     
     vec3 lmPos = worldPos * vec3(2.0, 2.0, 1.0);
     vec3 sampleVec = lmPos / vec3(512.0, 512.0, 128.0);
-    vec4 lmint = mix(vec4(texture(uLightmap, sampleVec).rgb * 5.0, 1), vec4(1, 1, 1, 1), fPrelight);
+    vec3 lightValue = texture(uLightmap, sampleVec).rgb;
+    vec4 lmmultint = mix(vec4(lightValue * 5.0, 1), vec4(1, 1, 1, 1), fPrelight);
+    vec4 lmaddint = mix(vec4(max(lightValue - 0.25, 0) * 2.0, 0), vec4(0, 0, 0, 0), fPrelight);
 
     // If remap palette used
     if ((fFlags & FLAG_REMAP) != 0)
@@ -76,7 +78,7 @@ void main()
     
         // z is the size of each x pixel in the atlas
         float x = fTexPaletteBounds.x + fTexPaletteBounds.z * 50.0;
-        oColour = vec4(uPalette[texture(uTexture, vec3(x, fTexPaletteBounds.y, float(fTexPaletteAtlas))).r].rgb, alpha) * lmint;
+        oColour = vec4(uPalette[texture(uTexture, vec3(x, fTexPaletteBounds.y, float(fTexPaletteAtlas))).r].rgb, alpha) * lmmultint + lmaddint;
         
         return;
     }
@@ -93,17 +95,17 @@ void main()
             discard;
         }
 
-        oColour = texel * lmint;
+        oColour = texel * lmmultint + lmaddint;
     }
     else
     {
         if ((fFlags & FLAG_COLOUR) != 0)
         {
-            oColour = vec4(fColour.rgb, fColour.a * texel.a) * lmint;
+            oColour = vec4(fColour.rgb, fColour.a * texel.a) * lmmultint + lmaddint;
         }
         else
         {
-            oColour = texel * lmint;
+            oColour = texel * lmmultint + lmaddint;
         }
     }
 }

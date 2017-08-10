@@ -16,7 +16,7 @@ uint8 affectorRecomputeQueue[LIGHTMAP_SIZE_Y][LIGHTMAP_SIZE_X];
 lighting_chunk lightingChunks[LIGHTMAP_CHUNKS_Z][LIGHTMAP_CHUNKS_Y][LIGHTMAP_CHUNKS_X];
 
 const lighting_value black = { .r = 0,.g = 0,.b = 0 };
-const lighting_value ambient = { .r = 20,.g = 20,.b = 20 };
+const lighting_value ambient = { .r = 10,.g = 10,.b = 10 };
 const lighting_value lit = { .r = 255,.g = 255,.b = 255 };
 
 // multiplies @target light with some multiplier light value @apply
