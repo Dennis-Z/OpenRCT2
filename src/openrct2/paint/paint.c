@@ -908,7 +908,7 @@ void paint_draw_structs(rct_drawpixelinfo * dpi, paint_struct * ps, uint32 viewF
     }
 }
 
-LightingData get_lighting_data(paint_struct* ps) {
+static LightingData get_lighting_data(paint_struct* ps) {
 	rct_xyz16 box_origin = { .x = ps->bound_box_x_end,.y = ps->bound_box_y_end,.z = ps->bound_box_z };
 	rct_xyz16 frontTop = { .x = ps->bound_box_x_end,.y = ps->bound_box_y_end,.z = ps->bound_box_z_end };
 	rct_xy16 screenCoordFrontTop = coordinate_3d_to_2d(&frontTop, get_current_rotation());

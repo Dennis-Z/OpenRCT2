@@ -20,14 +20,14 @@ const lighting_value ambient = { .r = 10,.g = 10,.b = 10 };
 const lighting_value lit = { .r = 255,.g = 255,.b = 255 };
 
 // multiplies @target light with some multiplier light value @apply
-void lighting_multiply(lighting_value* target, const lighting_value apply) {
+static void lighting_multiply(lighting_value* target, const lighting_value apply) {
 	target->r *= apply.r / 255.0f;
 	target->g *= apply.g / 255.0f;
 	target->b *= apply.b / 255.0f;
 }
 
 // adds @target light with some multiplier light value @apply
-void lighting_add(lighting_value* target, const lighting_value apply) {
+static void lighting_add(lighting_value* target, const lighting_value apply) {
 	// TODO: can overflow
 	target->r += apply.r;
 	target->g += apply.g;
@@ -36,7 +36,7 @@ void lighting_add(lighting_value* target, const lighting_value apply) {
 
 // elementswise lerp between @a and @b depending on @frac (@lerp = 0 -> @a)
 // @return 
-lighting_value interpolate_lighting(const lighting_value a, const lighting_value b, float frac) {
+static lighting_value interpolate_lighting(const lighting_value a, const lighting_value b, float frac) {
 	return (lighting_value) { 
 		.r = a.r * (1.0f - frac) + b.r * frac,
 		.g = a.g * (1.0f - frac) + b.g * frac,
@@ -46,7 +46,7 @@ lighting_value interpolate_lighting(const lighting_value a, const lighting_value
 
 // cast a ray from a 3d world position @a (light source position) to lighting tile
 // @return 
-lighting_value FASTCALL lighting_raycast(lighting_value color, const rct_xyz32 light_source_pos, const rct_xyz16 lightmap_texel) {
+static lighting_value FASTCALL lighting_raycast(lighting_value color, const rct_xyz32 light_source_pos, const rct_xyz16 lightmap_texel) {
 	float x = light_source_pos.x / 16.0f;
 	float y = light_source_pos.y / 16.0f;
 	float z = light_source_pos.z / 2.0f;
@@ -109,7 +109,7 @@ lighting_value FASTCALL lighting_raycast(lighting_value color, const rct_xyz32 l
 }
 
 // inserts a static light into the chunks this light can reach
-void lighting_insert_static_light(const lighting_light light) {
+static void lighting_insert_static_light(const lighting_light light) {
 	int range = 11;
 	sint32 lm_x = light.map_x * 2;
 	sint32 lm_y = light.map_y * 2;
@@ -374,7 +374,7 @@ static const float TransparentColourTable[144 - 44][3] =
 };
 #pragma endregion Colormap
 
-void lighting_static_light_cast(lighting_value* target_value, lighting_light light, sint32 px, sint32 py, sint32 pz) {
+static void lighting_static_light_cast(lighting_value* target_value, lighting_light light, sint32 px, sint32 py, sint32 pz) {
 	sint32 range = 11;
 	sint32 w_x = px * 16 + 8;
 	sint32 w_y = py * 16 + 8;
@@ -389,7 +389,7 @@ void lighting_static_light_cast(lighting_value* target_value, lighting_light lig
 	}
 }
 
-void lighting_update_affectors() {
+static void lighting_update_affectors() {
 	for (int y = 0; y < LIGHTMAP_SIZE_Y; y++) {
 		for (int x = 0; x < LIGHTMAP_SIZE_X; x++) {
 			uint8 dirs = affectorRecomputeQueue[y][x];
@@ -462,7 +462,7 @@ void lighting_update_affectors() {
 	}
 }
 
-void lighting_update_chunk(lighting_chunk* chunk) {
+static void lighting_update_chunk(lighting_chunk* chunk) {
 	for (int oz = 0; oz < LIGHTMAP_CHUNK_SIZE; oz++) {
 		for (int oy = 0; oy < LIGHTMAP_CHUNK_SIZE; oy++) {
 			for (int ox = 0; ox < LIGHTMAP_CHUNK_SIZE; ox++) {
@@ -476,7 +476,7 @@ void lighting_update_chunk(lighting_chunk* chunk) {
 	chunk->invalid = false;
 }
 
-lighting_update_batch lighting_update_internal() {
+static lighting_update_batch lighting_update_internal() {
 	// update all pending affectors first
 	lighting_update_affectors();
 
