@@ -483,6 +483,9 @@ lighting_update_batch lighting_update_internal() {
 	lighting_update_batch updated_batch;
 	size_t update_count = 0;
 
+	// TODO: this is not monotonic on Windows
+	clock_t max_end = clock() + LIGHTING_MAX_CLOCKS_PER_FRAME;
+
 	// recompute invalid chunks until reaching a limit
 	for (int z = 0; z < LIGHTMAP_CHUNKS_Z; z++) {
 		for (int y = 0; y < LIGHTMAP_CHUNKS_Y; y++) {
@@ -495,6 +498,10 @@ lighting_update_batch lighting_update_internal() {
 
 					// exceeding max update count?
 					if (update_count >= LIGHTING_MAX_CHUNK_UPDATES_PER_FRAME) {
+						goto stop_updating;
+					}
+
+					if (clock() > max_end) {
 						goto stop_updating;
 					}
 				}

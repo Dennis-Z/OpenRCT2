@@ -1,5 +1,6 @@
 #pragma once
 
+#include <time.h>
 #include "../common.h"
 #include "../world/map.h"
 
@@ -11,6 +12,7 @@
 #define LIGHTMAP_CHUNKS_Y (LIGHTMAP_SIZE_Y / LIGHTMAP_CHUNK_SIZE)
 #define LIGHTMAP_CHUNKS_Z (LIGHTMAP_SIZE_Z / LIGHTMAP_CHUNK_SIZE)
 #define LIGHTING_MAX_CHUNKS_LIGHTS 64
+#define LIGHTING_MAX_CLOCKS_PER_FRAME (CLOCKS_PER_SEC / 100)
 #define LIGHTING_MAX_CHUNK_UPDATES_PER_FRAME 30
 
 #pragma pack(push, 1)
