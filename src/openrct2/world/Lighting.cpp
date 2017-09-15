@@ -9,7 +9,7 @@ extern "C" {
 #include <mutex>
 #include <queue>
 #include <unordered_set>
-#include "openrct2/core/Math.hpp"
+#include "../core/Math.hpp"
 
 // how the light will be affected when light passes through a certain plane
 lighting_value* lightingAffectorsX = NULL;
@@ -33,7 +33,6 @@ const lighting_value black = { 0, 0, 0 };
 const lighting_value dimmedblack = { 200, 200, 200 };
 const lighting_value dimmedblackside = { 200, 200, 200 };
 const lighting_value dimmedblackvside = { 250, 250, 250 };
-const lighting_value ambient = { 0, 0, 0 };
 //const lighting_value ambient_sky = { 10 / 2, 20 / 2, 70 / 2 };
 const lighting_value ambient_sky = { 150, 130, 120 };
 const lighting_value lit = { 255, 255, 255 };
@@ -84,7 +83,7 @@ float skylight_direction[3] = { 0.0, 0.0, 0.0 }; // normalized with manhattan di
 rct_xyz16 skylight_delta = {0, 0, 0}; // each value +1 or -1, depending on the direction the skylight travels
 std::vector<lighting_chunk*> skylight_batch[LIGHTMAP_CHUNKS_X + LIGHTMAP_CHUNKS_Y + LIGHTMAP_CHUNKS_Z]; // indexed by distance to corner
 int skylight_batch_current = 0;
-std::atomic<uint8> skylight_batch_remaining = 0;
+std::atomic<uint8> skylight_batch_remaining;
 rct_xyz16 skylight_cell_itr[LIGHTMAP_CHUNK_SIZE * LIGHTMAP_CHUNK_SIZE * LIGHTMAP_CHUNK_SIZE];
 
 // multiplies @target light with some multiplier light value @apply
@@ -125,7 +124,11 @@ static float max_intensity_at(lighting_light light, int chlm_x, int chlm_y, int 
     sint32 w_y = chlm_y * 16 + 8;
     sint32 w_z = chlm_z * 2 + 1;
     float distpot = ((w_x - light.pos.x)*(w_x - light.pos.x) + (w_y - light.pos.y)*(w_y - light.pos.y) + (w_z - light.pos.z)*(w_z - light.pos.z) * 4 * 4);
-    float intensity = 500.0f / (distpot);
+    float intensity = 0.5f;
+    if (distpot != 0.f)
+    {
+        intensity = 500.0f / (distpot);
+    }
     if (intensity > 0.5f) intensity = 0.5f;
     return intensity;
 }
@@ -495,7 +498,7 @@ void lighting_invalidate_all() {
 
 void lighting_set_skylight_direction(float direction[3]) {
     memcpy(skylight_direction, direction, sizeof(float) * 3);
-    rct_xyz16 delta = { direction[0] > 0 ? -1 : 1, direction[1] > 0 ? -1 : 1, direction[2] > 0 ? -1 : 1 };
+    rct_xyz16 delta = { static_cast<sint16>(direction[0] > 0 ? -1 : 1), static_cast<sint16>(direction[1] > 0 ? -1 : 1), static_cast<sint16>(direction[2] > 0 ? -1 : 1) };
 
     if (delta.x != skylight_delta.x || delta.y != skylight_delta.y || delta.z != skylight_delta.z) {
         // rebuild chunk iterators...
@@ -503,7 +506,7 @@ void lighting_set_skylight_direction(float direction[3]) {
             skylight_batch[dist].clear();
         }
 
-        rct_xyz16 sourceChunk = { delta.x == 1 ? LIGHTMAP_CHUNKS_X - 1 : 0, delta.y == 1 ? LIGHTMAP_CHUNKS_Y - 1 : 0, delta.z == 1 ? LIGHTMAP_CHUNKS_Z - 1 : 0 };
+        rct_xyz16 sourceChunk = { static_cast<sint16>(delta.x == 1 ? LIGHTMAP_CHUNKS_X - 1 : 0), static_cast<sint16>(delta.y == 1 ? LIGHTMAP_CHUNKS_Y - 1 : 0), static_cast<sint16>(delta.z == 1 ? LIGHTMAP_CHUNKS_Z - 1 : 0) };
         log_info("start at %d %d %d", sourceChunk.x, sourceChunk.y, sourceChunk.z);
 
         for (int z = 0; z < LIGHTMAP_CHUNKS_Z; z++) {
@@ -516,7 +519,7 @@ void lighting_set_skylight_direction(float direction[3]) {
         }
 
         // rebuild cell iterator...
-        rct_xyz16 sourceCell = { delta.x == 1 ? LIGHTMAP_CHUNK_SIZE - 1 : 0, delta.y == 1 ? LIGHTMAP_CHUNK_SIZE - 1 : 0, delta.z == 1 ? LIGHTMAP_CHUNK_SIZE - 1 : 0 };
+        rct_xyz16 sourceCell = { static_cast<sint16>(delta.x == 1 ? LIGHTMAP_CHUNK_SIZE - 1 : 0), static_cast<sint16>(delta.y == 1 ? LIGHTMAP_CHUNK_SIZE - 1 : 0), static_cast<sint16>(delta.z == 1 ? LIGHTMAP_CHUNK_SIZE - 1 : 0) };
 
         int itr_queue_build_pos = 0;
         for (sint16 dist = 0; dist <= LIGHTMAP_CHUNK_SIZE + LIGHTMAP_CHUNK_SIZE + LIGHTMAP_CHUNK_SIZE; dist++) {
