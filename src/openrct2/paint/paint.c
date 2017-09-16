@@ -909,10 +909,10 @@ void paint_draw_structs(rct_drawpixelinfo * dpi, paint_struct * ps, uint32 viewF
     }
 }
 
-static LightingData get_lighting_data(paint_struct* ps) {
+static LightingSpriteData get_lighting_data(paint_struct* ps) {
 	rct_xyz16 box_origin = { .x = ps->bound_box_x_end,.y = ps->bound_box_y_end,.z = ps->bound_box_z };
 
-	return (LightingData) {
+	return (LightingSpriteData) {
 		.prelight = 0.0f,
 		.bbox_origin_3d = { box_origin.x / 32.0f, box_origin.y / 32.0f, box_origin.z / 8.0f }
 	};

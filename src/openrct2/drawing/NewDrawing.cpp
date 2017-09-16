@@ -263,7 +263,7 @@ extern "C"
 
     void FASTCALL gfx_draw_sprite(rct_drawpixelinfo * dpi, sint32 image, sint32 x, sint32 y, uint32 tertiary_colour)
     {
-		LightingData lightingData;
+		LightingSpriteData lightingData;
 		lightingData.prelight = 1.0f;
         if (_drawingEngine != nullptr)
         {
@@ -272,7 +272,7 @@ extern "C"
         }
     }
 
-	void FASTCALL gfx_draw_sprite_lit(rct_drawpixelinfo * dpi, sint32 image, sint32 x, sint32 y, uint32 tertiary_colour, LightingData lightingData)
+	void FASTCALL gfx_draw_sprite_lit(rct_drawpixelinfo * dpi, sint32 image, sint32 x, sint32 y, uint32 tertiary_colour, LightingSpriteData lightingData)
 	{
 		if (_drawingEngine != nullptr)
 		{
@@ -292,7 +292,7 @@ extern "C"
 
     void FASTCALL gfx_draw_sprite_raw_masked(rct_drawpixelinfo * dpi, sint32 x, sint32 y, sint32 maskImage, sint32 colourImage)
     {
-		LightingData lightingData;
+		LightingSpriteData lightingData;
 		lightingData.prelight = 1.0f;
         if (_drawingEngine != nullptr)
         {
@@ -301,7 +301,7 @@ extern "C"
         }
     }
 
-	void FASTCALL gfx_draw_sprite_raw_masked_lit(rct_drawpixelinfo * dpi, sint32 x, sint32 y, sint32 maskImage, sint32 colourImage, LightingData lightingData)
+	void FASTCALL gfx_draw_sprite_raw_masked_lit(rct_drawpixelinfo * dpi, sint32 x, sint32 y, sint32 maskImage, sint32 colourImage, LightingSpriteData lightingData)
 	{
 		if (_drawingEngine != nullptr)
 		{

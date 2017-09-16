@@ -14,25 +14,25 @@
 #define LIGHTMAP_CHUNKS_Z (LIGHTMAP_SIZE_Z / LIGHTMAP_CHUNK_SIZE)
 #define LIGHTING_MAX_CHUNKS_LIGHTS 64
 #define LIGHTING_MAX_CLOCKS_PER_FRAME (CLOCKS_PER_SEC / 100)
-#define LIGHTING_MAX_CHUNK_UPDATES_PER_FRAME 400
+#define LIGHTING_MAX_CHUNK_UPDATES_PER_FRAME 40
 
-typedef struct LightingData {
+typedef struct LightingSpriteData {
     float prelight;
     float bbox_origin_3d[3];
-} LightingData;
+} LightingSpriteData;
 
 #pragma pack(push, 1)
-typedef struct lighting_value {
+typedef struct lighting_color {
 	uint8 r;
 	uint8 g;
 	uint8 b;
-} lighting_value;
+} lighting_color;
 #pragma pack(pop)
 
 // TODO: may want a unique identifier for this (dynamic alloc?)
 typedef struct lighting_light {
 	rct_xyz32 pos;
-	lighting_value color;
+	lighting_color color;
 	sint32 map_x;
 	sint32 map_y;
 } lighting_light;
@@ -45,10 +45,10 @@ typedef struct lighting_chunk_static_light {
 typedef struct lighting_chunk {
     // data_skylight_static should always be set to data_skylight + data_static, elementswise
     // data_dynamic is set to data_skylight_static + whatever dynamic lights exists, but is not always initialized (check has_dynamic_lights)
-    lighting_value data_skylight[LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE];
-    lighting_value data_static[LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE];
-    lighting_value data_skylight_static[LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE];
-    lighting_value data_dynamic[LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE];
+    lighting_color data_skylight[LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE];
+    lighting_color data_static[LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE];
+    lighting_color data_skylight_static[LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE];
+    lighting_color data_dynamic[LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE];
     lighting_chunk_static_light static_lights[LIGHTING_MAX_CHUNKS_LIGHTS];
 	size_t static_lights_count;
 	uint8 x, y, z;
@@ -56,8 +56,13 @@ typedef struct lighting_chunk {
     bool has_dynamic_lights;
 } lighting_chunk;
 
+typedef struct lighting_update_chunk {
+    lighting_color data[LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE];
+    uint8 x, y, z;
+} lighting_update_chunk;
+
 typedef struct lighting_update_batch {
-	lighting_chunk* updated_chunks[LIGHTING_MAX_CHUNK_UPDATES_PER_FRAME + 1];
+    lighting_update_chunk updated_chunks[LIGHTING_MAX_CHUNK_UPDATES_PER_FRAME];
     size_t update_count;
 } lighting_update_batch;
 
@@ -67,4 +72,4 @@ void lighting_invalidate_at(sint32 x, sint32 y);
 void lighting_invalidate_around(sint32 x, sint32 y);
 void lighting_invalidate_all();
 void lighting_cleanup();
-lighting_update_batch lighting_update();
+lighting_update_batch* lighting_update();

@@ -53,11 +53,10 @@ void Painter::Paint(IDrawingEngine * de)
     {
         de->PaintWindows();
 		
-		lighting_update_batch update_batch = lighting_update();
-		lighting_chunk** chunk_itr = update_batch.updated_chunks;
-		while (*chunk_itr) {
-			lighting_chunk* chunk = *(chunk_itr++);
-			de->UpdateLightmap(chunk->x, chunk->y, chunk->z, chunk->has_dynamic_lights ? (uint8*)chunk->data_dynamic : (uint8*)chunk->data_skylight_static);
+		lighting_update_batch* update_batch = lighting_update();
+        for (size_t i = 0; i < update_batch->update_count; i++) {
+            lighting_update_chunk& chunk = update_batch->updated_chunks[i];
+			de->UpdateLightmap(chunk.x, chunk.y, chunk.z, (uint8*)chunk.data);
 		}
 			
         update_palette_effects();

@@ -13,9 +13,9 @@ extern "C" {
 #include "../core/Math.hpp"
 
 // how the light will be affected when light passes through a certain plane
-lighting_value* lightingAffectorsX = NULL;
-lighting_value* lightingAffectorsY = NULL;
-lighting_value* lightingAffectorsZ = NULL;
+lighting_color* lightingAffectorsX = NULL;
+lighting_color* lightingAffectorsY = NULL;
+lighting_color* lightingAffectorsZ = NULL;
 #define LAIDX(y, x, z) ((y) * (LIGHTMAP_SIZE_X+1) * (LIGHTMAP_SIZE_Z+1) + (x) * (LIGHTMAP_SIZE_Z+1) + (z))
 
 // lightmap columns whose lightingAffectors are outdated
@@ -30,14 +30,14 @@ lighting_chunk* lightingChunks = NULL;
 
 #define LIGHTMAXSPREAD 7
 
-const lighting_value black = { 0, 0, 0 };
-const lighting_value dimmedblack = { 200, 200, 200 };
-const lighting_value dimmedblackside = { 200, 200, 200 };
-const lighting_value dimmedblackvside = { 250, 250, 250 };
+const lighting_color black = { 0, 0, 0 };
+const lighting_color dimmedblack = { 200, 200, 200 };
+const lighting_color dimmedblackside = { 200, 200, 200 };
+const lighting_color dimmedblackvside = { 250, 250, 250 };
 //const lighting_value ambient_sky = { 10 / 2, 20 / 2, 70 / 2 };
-const lighting_value ambient_sky = { 150, 130, 120 };
-const lighting_value lit = { 255, 255, 255 };
-const lighting_value lightlit = { 180/2, 110/2, 108/2 };
+const lighting_color ambient_sky = { 150, 130, 120 };
+const lighting_color lit = { 255, 255, 255 };
+const lighting_color lightlit = { 180/2, 110/2, 108/2 };
 
 #define SUBCELLITR(v, cbidx) for (int v = (cbidx); v < (cbidx) + 2; v++)
 #define CHUNKRANGEITRXY(lm_x, lm_y, sx, sy, range)              for (int sy = Math::Max(0, ((lm_y) - (range)) / LIGHTMAP_CHUNK_SIZE); sy <= Math::Min(LIGHTMAP_CHUNKS_Y - 1, ((lm_y) + (range)) / LIGHTMAP_CHUNK_SIZE); sy++)\
@@ -94,7 +94,7 @@ std::atomic<bool> worker_threads_continue;
 std::vector<std::thread> worker_threads;
 
 // multiplies @target light with some multiplier light value @apply
-static void lighting_multiply(lighting_value* target, const lighting_value apply) {
+static void lighting_multiply(lighting_color* target, const lighting_color apply) {
     // don't convert to FP
     uint16 mulr = ((uint16)target->r * apply.r) / 255;
     uint16 mulg = ((uint16)target->g * apply.g) / 255;
@@ -105,7 +105,7 @@ static void lighting_multiply(lighting_value* target, const lighting_value apply
 }
 
 // adds @target light with some multiplier light value @apply
-static void lighting_add(lighting_value* target, const lighting_value apply) {
+static void lighting_add(lighting_color* target, const lighting_color apply) {
     uint16 resr = (uint16)target->r + apply.r;
     uint16 resg = (uint16)target->g + apply.g;
     uint16 resb = (uint16)target->b + apply.b;
@@ -141,7 +141,7 @@ static float max_intensity_at(lighting_light light, int chlm_x, int chlm_y, int 
 }
 
 // expands a light into the map array passed
-static void light_expand_to_map(lighting_light light, lighting_value map[LIGHTMAXSPREAD * 4 + 1][LIGHTMAXSPREAD * 2 + 1][LIGHTMAXSPREAD * 2 + 1]) {
+static void light_expand_to_map(lighting_light light, lighting_color map[LIGHTMAXSPREAD * 4 + 1][LIGHTMAXSPREAD * 2 + 1][LIGHTMAXSPREAD * 2 + 1]) {
     float x = light.pos.x / (32.0f / LIGHTING_CELL_SUBDIVISIONS);
     float y = light.pos.y / (32.0f / LIGHTING_CELL_SUBDIVISIONS);
     float z = light.pos.z / 2.0f;
@@ -205,9 +205,9 @@ static void light_expand_to_map(lighting_light light, lighting_value map[LIGHTMA
         float fragz = fabs(this_delta_z) / dist * intensitybase / max_intensity_at(light, w_x, w_y, w_z + (delta->z < 0 ? 1 : -1));
 
         // lighting data from the source positions
-        lighting_value from_x = map[LIGHTMAXSPREAD * 2 + delta->z][LIGHTMAXSPREAD + delta->y][LIGHTMAXSPREAD + delta->x + (delta->x < 0 ? 1 : -1)];
-        lighting_value from_y = map[LIGHTMAXSPREAD * 2 + delta->z][LIGHTMAXSPREAD + delta->y + (delta->y < 0 ? 1 : -1)][LIGHTMAXSPREAD + delta->x];
-        lighting_value from_z = map[LIGHTMAXSPREAD * 2 + delta->z + (delta->z < 0 ? 1 : -1)][LIGHTMAXSPREAD + delta->y][LIGHTMAXSPREAD + delta->x];
+        lighting_color from_x = map[LIGHTMAXSPREAD * 2 + delta->z][LIGHTMAXSPREAD + delta->y][LIGHTMAXSPREAD + delta->x + (delta->x < 0 ? 1 : -1)];
+        lighting_color from_y = map[LIGHTMAXSPREAD * 2 + delta->z][LIGHTMAXSPREAD + delta->y + (delta->y < 0 ? 1 : -1)][LIGHTMAXSPREAD + delta->x];
+        lighting_color from_z = map[LIGHTMAXSPREAD * 2 + delta->z + (delta->z < 0 ? 1 : -1)][LIGHTMAXSPREAD + delta->y][LIGHTMAXSPREAD + delta->x];
 
         // apply affectors from the boundaries
         // TODO: maybe quad-lerp like done with raycasts? will yield smoother occlusion, especially when a light is moving
@@ -226,7 +226,7 @@ static void light_expand_to_map(lighting_light light, lighting_value map[LIGHTMA
 }
 
 // given an expanded light map, applies it to a chunk
-static void light_expansion_apply(lighting_light light, lighting_value map[LIGHTMAXSPREAD * 4 + 1][LIGHTMAXSPREAD * 2 + 1][LIGHTMAXSPREAD * 2 + 1], lighting_chunk* target, lighting_value target_data[LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE]) {
+static void light_expansion_apply(lighting_light light, lighting_color map[LIGHTMAXSPREAD * 4 + 1][LIGHTMAXSPREAD * 2 + 1][LIGHTMAXSPREAD * 2 + 1], lighting_chunk* target, lighting_color target_data[LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE]) {
     float x = light.pos.x / (32.0f / LIGHTING_CELL_SUBDIVISIONS);
     float y = light.pos.y / (32.0f / LIGHTING_CELL_SUBDIVISIONS);
     float z = light.pos.z / 2.0f;
@@ -450,9 +450,9 @@ void lighting_init() {
 
     lightingChunks = (lighting_chunk*)malloc(sizeof(lighting_chunk) * LIGHTMAP_CHUNKS_X * LIGHTMAP_CHUNKS_Y * LIGHTMAP_CHUNKS_Z);
     // TODO: this should honestly really be a power of two size for fast multiplication for indexing...
-    lightingAffectorsX = (lighting_value*)malloc(sizeof(lighting_value) * (LIGHTMAP_SIZE_X + 1) * (LIGHTMAP_SIZE_Y + 1) * (LIGHTMAP_SIZE_Z + 1));
-    lightingAffectorsY = (lighting_value*)malloc(sizeof(lighting_value) * (LIGHTMAP_SIZE_X + 1) * (LIGHTMAP_SIZE_Y + 1) * (LIGHTMAP_SIZE_Z + 1));
-    lightingAffectorsZ = (lighting_value*)malloc(sizeof(lighting_value) * (LIGHTMAP_SIZE_X + 1) * (LIGHTMAP_SIZE_Y + 1) * (LIGHTMAP_SIZE_Z + 1));
+    lightingAffectorsX = (lighting_color*)malloc(sizeof(lighting_color) * (LIGHTMAP_SIZE_X + 1) * (LIGHTMAP_SIZE_Y + 1) * (LIGHTMAP_SIZE_Z + 1));
+    lightingAffectorsY = (lighting_color*)malloc(sizeof(lighting_color) * (LIGHTMAP_SIZE_X + 1) * (LIGHTMAP_SIZE_Y + 1) * (LIGHTMAP_SIZE_Z + 1));
+    lightingAffectorsZ = (lighting_color*)malloc(sizeof(lighting_color) * (LIGHTMAP_SIZE_X + 1) * (LIGHTMAP_SIZE_Y + 1) * (LIGHTMAP_SIZE_Z + 1));
 	{
 		std::lock_guard<std::mutex> lock(outdated_gpu_mutex);
 		outdated_gpu.clear();
@@ -489,7 +489,7 @@ void lighting_init() {
     }
 
     skylight_delta = { 0, 0, 0 }; // must reset, pointers are no longer valid
-    float new_skylight_direction[3] = { 0.2f, -0.4f, -0.4f };
+    float new_skylight_direction[3] = { -0.2f, 0.4f, -0.4f };
     lighting_set_skylight_direction(new_skylight_direction);
 
     skylight_batch_current = -1;
@@ -774,7 +774,7 @@ static void lighting_update_affectors() {
                                 break;
                             }
                             for (int z = map_element->base_height - 1; z < map_element->clearance_height; z++) {
-                                lighting_value affector = black;
+                                lighting_color affector = black;
                                 if (map_element->properties.wall.type == 54) {
                                     uint8 color = map_element->properties.wall.colour_1;
                                     if (color >= 44 && color < 144) {
@@ -815,7 +815,7 @@ static void lighting_update_static_light(lighting_light& light) {
     sint32 lm_y = light.map_y * LIGHTING_CELL_SUBDIVISIONS;
     sint32 lm_z = light.pos.z / 2;
 
-    lighting_value map[LIGHTMAXSPREAD * 4 + 1][LIGHTMAXSPREAD * 2 + 1][LIGHTMAXSPREAD * 2 + 1];
+    lighting_color map[LIGHTMAXSPREAD * 4 + 1][LIGHTMAXSPREAD * 2 + 1][LIGHTMAXSPREAD * 2 + 1];
     light_expand_to_map(light, map);
 
     CHUNKRANGEITRXYZ(lm_x, lm_y, lm_z, sx, sy, sz, range) {
@@ -943,7 +943,7 @@ static void lighting_add_dynamic(lighting_update_batch* updated_batch, sint16 x,
     lighting_light light;
     light.pos = { x, y, z / 4 }; // TODO: not sure why this coordinate space is / 8 instead of / 2, which requires this random correction here
 
-    lighting_value map[LIGHTMAXSPREAD * 4 + 1][LIGHTMAXSPREAD * 2 + 1][LIGHTMAXSPREAD * 2 + 1];
+    lighting_color map[LIGHTMAXSPREAD * 4 + 1][LIGHTMAXSPREAD * 2 + 1][LIGHTMAXSPREAD * 2 + 1];
     light_expand_to_map(light, map);
 
     CHUNKRANGEITRXYZ(lm_x, lm_y, lm_z, ch_x, ch_y, ch_z, range) {
@@ -1021,7 +1021,7 @@ static void lighting_update_dynamic(lighting_update_batch* updated_batch) {
 
 }
 
-static lighting_value lighting_get_skylight_at(int w_x, int w_y, int w_z) {
+static lighting_color lighting_get_skylight_at(int w_x, int w_y, int w_z) {
     // out of bounds?
     if (w_x < 0 || w_y < 0 || w_z < 0 || w_x >= LIGHTMAP_SIZE_X || w_y >= LIGHTMAP_SIZE_Y || w_z >= LIGHTMAP_SIZE_Z)
         return ambient_sky;
@@ -1051,9 +1051,9 @@ static void lighting_update_skylight(lighting_chunk* chunk) {
         int w_y = chunk->y * LIGHTMAP_CHUNK_SIZE + cell_coord.y;
         int w_z = chunk->z * LIGHTMAP_CHUNK_SIZE + cell_coord.z;
 
-        lighting_value from_x = lighting_get_skylight_at(w_x + skylight_delta.x, w_y, w_z);
-        lighting_value from_y = lighting_get_skylight_at(w_x, w_y + skylight_delta.y, w_z);
-        lighting_value from_z = lighting_get_skylight_at(w_x, w_y, w_z + skylight_delta.z);
+        lighting_color from_x = lighting_get_skylight_at(w_x + skylight_delta.x, w_y, w_z);
+        lighting_color from_y = lighting_get_skylight_at(w_x, w_y + skylight_delta.y, w_z);
+        lighting_color from_z = lighting_get_skylight_at(w_x, w_y, w_z + skylight_delta.z);
 
         lighting_multiply(&from_x, lightingAffectorsX[LAIDX(w_y, w_x + (skylight_delta.x > 0), w_z)]);
         lighting_multiply(&from_y, lightingAffectorsY[LAIDX(w_y + (skylight_delta.y > 0), w_x, w_z)]);
@@ -1064,14 +1064,14 @@ static void lighting_update_skylight(lighting_chunk* chunk) {
         float fragz = fabs(skylight_direction[2]);
 
         // interpolate values
-        lighting_value new_skylight_value = {
+        lighting_color new_skylight_value = {
             (uint8)(from_x.r * fragx + from_y.r * fragy + from_z.r * fragz),
             (uint8)(from_x.g * fragx + from_y.g * fragy + from_z.g * fragz),
             (uint8)(from_x.b * fragx + from_y.b * fragy + from_z.b * fragz)
         };
 
         // TODO: refactor to something more efficient
-        lighting_value static_value = chunk->data_static[cell_coord.z][cell_coord.y][cell_coord.x];
+        lighting_color static_value = chunk->data_static[cell_coord.z][cell_coord.y][cell_coord.x];
 
         chunk->data_skylight[cell_coord.z][cell_coord.y][cell_coord.x] = new_skylight_value;
         chunk->data_skylight_static[cell_coord.z][cell_coord.y][cell_coord.x] = {
@@ -1116,12 +1116,12 @@ static void lighting_worker_thread() {
     }
 }
 
-static lighting_update_batch lighting_update_internal() {
+static lighting_update_batch* lighting_update_internal() {
 
     // update all pending affectors first
     lighting_update_affectors();
 
-    lighting_update_batch updated_batch;
+    static lighting_update_batch updated_batch;
     updated_batch.update_count = 0;
 
     /*for (int i = 0; i < 100; i++) {
@@ -1147,14 +1147,16 @@ static lighting_update_batch lighting_update_internal() {
         for (int i = 0; i < LIGHTING_MAX_CHUNK_UPDATES_PER_FRAME; i++) {
             if (outdated_gpu.empty()) break;
 
-            lighting_chunk *chunk = outdated_gpu.frontpop();
-            updated_batch.updated_chunks[updated_batch.update_count++] = chunk;
+            lighting_chunk* chunk = outdated_gpu.frontpop();
+            lighting_update_chunk& update_chunk = updated_batch.updated_chunks[updated_batch.update_count++];
+            memcpy(update_chunk.data, chunk->has_dynamic_lights ? chunk->data_dynamic : chunk->data_skylight_static, sizeof(update_chunk.data));
+            update_chunk.x = chunk->x;
+            update_chunk.y = chunk->y;
+            update_chunk.z = chunk->z;
         }
     }
 
-    updated_batch.updated_chunks[updated_batch.update_count] = NULL;
-
-    return updated_batch;
+    return &updated_batch;
 }
 
 void lighting_reset() {
@@ -1165,6 +1167,6 @@ void lighting_reset() {
     }
 }
 
-lighting_update_batch lighting_update() {
+lighting_update_batch* lighting_update() {
     return lighting_update_internal();
 }

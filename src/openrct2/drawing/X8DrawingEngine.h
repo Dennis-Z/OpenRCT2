@@ -143,8 +143,8 @@ namespace OpenRCT2
             void FillRect(uint32 colour, sint32 x, sint32 y, sint32 w, sint32 h) override;
             void FilterRect(FILTER_PALETTE_ID palette, sint32 left, sint32 top, sint32 right, sint32 bottom) override;
             void DrawLine(uint32 colour, sint32 x1, sint32 y1, sint32 x2, sint32 y2) override;
-            void DrawSprite(uint32 image, sint32 x, sint32 y, uint32 tertiaryColour, LightingData lightingData) override;
-			void DrawSpriteRawMasked(sint32 x, sint32 y, uint32 maskImage, uint32 colourImage, LightingData lightingData) override;
+            void DrawSprite(uint32 image, sint32 x, sint32 y, uint32 tertiaryColour, LightingSpriteData lightingData) override;
+			void DrawSpriteRawMasked(sint32 x, sint32 y, uint32 maskImage, uint32 colourImage, LightingSpriteData lightingData) override;
             void DrawSpriteSolid(uint32 image, sint32 x, sint32 y, uint8 colour) override;
             void DrawGlyph(uint32 image, sint32 x, sint32 y, uint8 * palette) override;
 			void UpdateLightmap(uint8 x, uint8 y, uint8 z, uint8* data) override {};

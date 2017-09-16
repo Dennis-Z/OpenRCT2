@@ -333,10 +333,10 @@ void sub_68371D();
 void FASTCALL gfx_bmp_sprite_to_buffer(uint8* palette_pointer, uint8* unknown_pointer, uint8* source_pointer, uint8* dest_pointer, rct_g1_element* source_image, rct_drawpixelinfo *dest_dpi, sint32 height, sint32 width, sint32 image_type);
 void FASTCALL gfx_rle_sprite_to_buffer(const uint8* RESTRICT source_bits_pointer, uint8* RESTRICT dest_bits_pointer, const uint8* RESTRICT palette_pointer, const rct_drawpixelinfo * RESTRICT dpi, sint32 image_type, sint32 source_y_start, sint32 height, sint32 source_x_start, sint32 width);
 void FASTCALL gfx_draw_sprite(rct_drawpixelinfo *dpi, sint32 image_id, sint32 x, sint32 y, uint32 tertiary_colour);
-void FASTCALL gfx_draw_sprite_lit(rct_drawpixelinfo *dpi, sint32 image_id, sint32 x, sint32 y, uint32 tertiary_colour, LightingData lightingData);
+void FASTCALL gfx_draw_sprite_lit(rct_drawpixelinfo *dpi, sint32 image_id, sint32 x, sint32 y, uint32 tertiary_colour, LightingSpriteData lightingData);
 void FASTCALL gfx_draw_glpyh(rct_drawpixelinfo *dpi, sint32 image_id, sint32 x, sint32 y, uint8 * palette);
 void FASTCALL gfx_draw_sprite_raw_masked(rct_drawpixelinfo *dpi, sint32 x, sint32 y, sint32 maskImage, sint32 colourImage);
-void FASTCALL gfx_draw_sprite_raw_masked_lit(rct_drawpixelinfo * dpi, sint32 x, sint32 y, sint32 maskImage, sint32 colourImage, LightingData lightingData);
+void FASTCALL gfx_draw_sprite_raw_masked_lit(rct_drawpixelinfo * dpi, sint32 x, sint32 y, sint32 maskImage, sint32 colourImage, LightingSpriteData lightingData);
 void FASTCALL gfx_draw_sprite_solid(rct_drawpixelinfo * dpi, sint32 image, sint32 x, sint32 y, uint8 colour);
 
 void FASTCALL gfx_draw_sprite_software(rct_drawpixelinfo *dpi, sint32 image_id, sint32 x, sint32 y, uint32 tertiary_colour);
