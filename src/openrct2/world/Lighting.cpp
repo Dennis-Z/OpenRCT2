@@ -1055,9 +1055,9 @@ static void lighting_update_skylight(lighting_chunk* chunk) {
         lighting_value from_y = lighting_get_skylight_at(w_x, w_y + skylight_delta.y, w_z);
         lighting_value from_z = lighting_get_skylight_at(w_x, w_y, w_z + skylight_delta.z);
 
-        lighting_multiply(&from_x, lightingAffectorsX[LAIDX(w_y, w_x + (skylight_delta.x < 0), w_z)]);
-        lighting_multiply(&from_y, lightingAffectorsY[LAIDX(w_y + (skylight_delta.y < 0), w_x, w_z)]);
-        lighting_multiply(&from_z, lightingAffectorsZ[LAIDX(w_y, w_x, w_z + (skylight_delta.z < 0))]);
+        lighting_multiply(&from_x, lightingAffectorsX[LAIDX(w_y, w_x + (skylight_delta.x > 0), w_z)]);
+        lighting_multiply(&from_y, lightingAffectorsY[LAIDX(w_y + (skylight_delta.y > 0), w_x, w_z)]);
+        lighting_multiply(&from_z, lightingAffectorsZ[LAIDX(w_y, w_x, w_z + (skylight_delta.z < 0))]); // TODO: not sure why this shouldn't be flipped -- it at least offsets the Z axis if it's flipped
 
         float fragx = fabs(skylight_direction[0]);
         float fragy = fabs(skylight_direction[1]);
