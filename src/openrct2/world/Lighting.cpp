@@ -107,15 +107,22 @@ public:
             queue.push(elem);
         }
     }
+
+    size_t size() {
+        return set.size();
+    }
 };
 
-// TODO: custom data structure for queue + set
 queue_set<lighting_chunk*> outdated_skylight; // should recompute skylight
 std::mutex outdated_skylight_mutex;
-std::mutex outdated_gpu_mutex;
 queue_set<lighting_chunk*> outdated_static; // has outdated static lights
+std::mutex outdated_static_mutex;
 queue_set<lighting_chunk*> outdated_gpu; // needs to update texture on gpu
+std::mutex outdated_gpu_mutex;
 std::unordered_set<lighting_chunk*> dynamic_chunks;
+std::mutex dynamic_chunks_mutex;
+std::queue<lighting_light> pending_dynamic_lights;
+std::mutex pending_dynamic_lights_mutex;
 
 float skylight_direction[3] = { 0.0, 0.0, 0.0 }; // normalized with manhattan distance(!) x + y + z = 1
 rct_xyz16 skylight_delta = {0, 0, 0}; // each value +1 or -1, depending on the direction the skylight travels
@@ -406,8 +413,10 @@ void lighting_invalidate_at(sint32 wx, sint32 wy) {
                     chunk->static_lights[light_idx].is_drawn = false;
                 }
             }
-
-            outdated_static.push(chunk);
+            {
+                std::lock_guard<std::mutex> lock(outdated_static_mutex);
+                outdated_static.push(chunk);
+            }
             {
                 std::lock_guard<std::mutex> lock(outdated_gpu_mutex);
                 outdated_gpu.push(chunk);
@@ -500,12 +509,18 @@ void lighting_init() {
 		std::lock_guard<std::mutex> lock(outdated_gpu_mutex);
 		outdated_gpu.clear();
 	}
-    outdated_static.clear();
+    {
+        std::lock_guard<std::mutex> lock(outdated_static_mutex);
+        outdated_static.clear();
+    }
     {
         std::lock_guard<std::mutex> lock(outdated_skylight_mutex);
         outdated_skylight.clear();
     }
-    std::unordered_set<lighting_chunk*>().swap(dynamic_chunks);
+    {
+        std::lock_guard<std::mutex> lock(dynamic_chunks_mutex);
+        std::unordered_set<lighting_chunk*>().swap(dynamic_chunks);
+    }
 
     // reset affectors to 1^3
     for (int z = 0; z < LIGHTMAP_SIZE_Z; z++) {
@@ -947,8 +962,12 @@ static void lighting_update_static(lighting_update_batch* updated_batch) {
     }*/
 
     for (int i = 0; i < 100; i++) {
-        if (outdated_static.empty()) break;
-        lighting_chunk* chunk = outdated_static.frontpop();
+        lighting_chunk* chunk;
+        {
+            std::lock_guard<std::mutex> lock(outdated_static_mutex);
+            if (outdated_static.empty()) break;
+            chunk = outdated_static.frontpop();
+        }
 
         for (size_t lidx = 0; lidx < chunk->static_lights_count; lidx++) {
             if (!chunk->static_lights[lidx].is_drawn) {
@@ -982,14 +1001,12 @@ static lighting_value* lighting_get_dynamic_texel(lighting_update_batch* updated
     return &chunk->data_dynamic[z % LIGHTMAP_CHUNK_SIZE][y % LIGHTMAP_CHUNK_SIZE][x % LIGHTMAP_CHUNK_SIZE];
 }
 */
-static void lighting_add_dynamic(lighting_update_batch* updated_batch, sint16 x, sint16 y, sint16 z) {
-    int lm_x = (x * LIGHTING_CELL_SUBDIVISIONS) / 32;
-    int lm_y = (y * LIGHTING_CELL_SUBDIVISIONS) / 32;
-    int lm_z = z / 8;
-    int range = 8;
 
-    lighting_light light;
-    light.pos = { x, y, z / 4 }; // TODO: not sure why this coordinate space is / 8 instead of / 2, which requires this random correction here
+static void lighting_add_dynamic(lighting_light light) {
+    int lm_x = (light.pos.x * LIGHTING_CELL_SUBDIVISIONS) / 32;
+    int lm_y = (light.pos.y * LIGHTING_CELL_SUBDIVISIONS) / 32;
+    int lm_z = light.pos.z / 8;
+    int range = 8;
 
     lighting_color map[LIGHTMAXSPREAD * 4 + 1][LIGHTMAXSPREAD * 2 + 1][LIGHTMAXSPREAD * 2 + 1];
     light_expand_to_map(light, map);
@@ -1000,13 +1017,14 @@ static void lighting_add_dynamic(lighting_update_batch* updated_batch, sint16 x,
         {
             std::unique_lock<std::shared_mutex> lock1(chunk->data_dynamic_mutex);
             if (!chunk->has_dynamic_lights) {
-
                 std::unique_lock<std::shared_mutex> lock2(chunk->data_skylight_static_mutex);
                 memcpy(chunk->data_dynamic, chunk->data_skylight_static, sizeof(chunk->data_dynamic));
                 chunk->has_dynamic_lights = true;
 
-                dynamic_chunks.insert(chunk);
-                //updated_batch->updated_chunks[updated_batch->update_count++] = chunk;
+                {
+                    std::lock_guard<std::mutex> lock3(dynamic_chunks_mutex);
+                    dynamic_chunks.insert(chunk);
+                }
             }
             light_expansion_apply(light, map, chunk, chunk->data_dynamic);
         }
@@ -1018,11 +1036,24 @@ static void lighting_add_dynamic(lighting_update_batch* updated_batch, sint16 x,
     }
 }
 
-static void lighting_update_dynamic(lighting_update_batch* updated_batch) {
-    // TODO: this is not monotonic on Windows
-    //clock_t max_end = clock() + LIGHTING_MAX_CLOCKS_PER_FRAME;
+static void lighting_schedule_dynamic(lighting_update_batch* updated_batch) {
+    std::lock_guard<std::mutex> lock(pending_dynamic_lights_mutex);
+    // TODO: resetting like this may be undesired? if FPS is very high, chances that lights won't render is higher as a result of this
+    // may need an alternative (update pending dynamic lights to their new value + use queue?)...
+    std::queue<lighting_light>().swap(pending_dynamic_lights); // reset all pending lights not processed in time, they'll be re-added now
 
-    //log_info("reg");
+    {
+        std::lock_guard<std::mutex> lock2(outdated_gpu_mutex);
+        std::lock_guard<std::mutex> lock3(dynamic_chunks_mutex);
+        for (lighting_chunk *chunk : dynamic_chunks) {
+            {
+                std::unique_lock<std::shared_mutex> lock4(chunk->data_dynamic_mutex);
+                chunk->has_dynamic_lights = false;
+            }
+            outdated_gpu.push(chunk);
+        }
+        std::unordered_set<lighting_chunk*>().swap(dynamic_chunks);
+    }
 
     uint16 spriteIndex = gSpriteListHead[SPRITE_LIST_TRAIN];
     while (spriteIndex != SPRITE_INDEX_NULL) {
@@ -1046,7 +1077,9 @@ static void lighting_update_dynamic(lighting_update_batch* updated_batch) {
 
             place_x = vehicle->x;
             place_y = vehicle->y;
-            place_z = vehicle->z;
+            place_z = vehicle->z / 4; // TODO: not sure why this coordinate space is / 4
+
+            rct_xyz32 pos = { place_x, place_y, place_z };
 
             rct_ride *ride = get_ride(vehicle->ride);
             switch (ride->type) {
@@ -1057,14 +1090,11 @@ static void lighting_update_dynamic(lighting_update_batch* updated_batch) {
             case RIDE_TYPE_MINE_TRAIN_COASTER:
             case RIDE_TYPE_WOODEN_ROLLER_COASTER:
             case RIDE_TYPE_MINIATURE_RAILWAY:
-                if (vehicle == vehicle_get_head(vehicle)) {
-                    lighting_add_dynamic(updated_batch, place_x, place_y, place_z);
-                }
-                break;
             case RIDE_TYPE_BOAT_RIDE:
             case RIDE_TYPE_WATER_COASTER:
                 if (vehicle == vehicle_get_head(vehicle)) {
-                    lighting_add_dynamic(updated_batch, place_x, place_y, place_z);
+                    //lighting_add_dynamic(updated_batch, place_x, place_y, place_z);
+                    pending_dynamic_lights.push({ pos, lightlit });
                 }
                 break;
             default:
@@ -1073,6 +1103,18 @@ static void lighting_update_dynamic(lighting_update_batch* updated_batch) {
         }
     }
 
+}
+
+static void lighting_update_any_dynamic_light() {
+    lighting_light light;
+    {
+        std::lock_guard<std::mutex> lock1(pending_dynamic_lights_mutex);
+        if (pending_dynamic_lights.empty()) return;
+        light = pending_dynamic_lights.front();
+        pending_dynamic_lights.pop();
+    }
+
+    lighting_add_dynamic(light);
 }
 
 static lighting_color lighting_get_skylight_at(int w_x, int w_y, int w_z) {
@@ -1171,7 +1213,8 @@ static void lighting_worker_thread() {
     while (worker_threads_continue.load()) { // TODO: may constantly read from cache?
         //std::unique_lock<std::mutex> lock(is_collecting_data_mutex);
         //is_collecting_data_cv.wait(lock, [] { return !is_collecting_data; } );
-        lighting_update_any_skylight();
+        for (int i = 0; i < 5; i++) lighting_update_any_skylight();
+        lighting_update_any_dynamic_light();
         std::this_thread::sleep_for(1ms);
         //lock.release();
     }
@@ -1189,19 +1232,7 @@ static lighting_update_batch* lighting_update_internal() {
         lighting_update_any_skylight();
     }*/
 
-    // reset current dynamic chunks to static
-    // must update at gpu too!
-    {
-        std::lock_guard<std::mutex> lock(outdated_gpu_mutex);
-        for (lighting_chunk *chunk : dynamic_chunks) {
-            chunk->has_dynamic_lights = false;
-            outdated_gpu.push(chunk);
-        }
-    }
-    std::unordered_set<lighting_chunk*>().swap(dynamic_chunks);
-
     lighting_update_static(&updated_batch);
-    lighting_update_dynamic(&updated_batch);
 
     {
         std::lock_guard<std::mutex> lock(outdated_gpu_mutex);
@@ -1220,6 +1251,9 @@ static lighting_update_batch* lighting_update_internal() {
             update_chunk.z = chunk->z;
         }
     }
+
+    // as a result of this, dynamic lights are delayed by one frame as they're just now scheduled 
+    lighting_schedule_dynamic(&updated_batch);
 
     return &updated_batch;
 }
