@@ -8,9 +8,45 @@ extern "C" {
 #include <atomic>
 #include <mutex>
 #include <thread>
+#include <shared_mutex>
 #include <queue>
 #include <unordered_set>
 #include "../core/Math.hpp"
+
+// TODO: may want a unique identifier for this (dynamic alloc?)
+typedef struct lighting_light {
+    rct_xyz32 pos;
+    lighting_color color;
+    sint32 map_x;
+    sint32 map_y;
+} lighting_light;
+
+typedef struct lighting_chunk_static_light {
+    lighting_light light;
+    bool is_drawn;
+} lighting_chunk_static_light;
+
+typedef struct lighting_chunk {
+    // data_skylight_static should always be set to data_skylight + data_static, elementswise
+    // data_dynamic is set to data_skylight_static + whatever dynamic lights exists, but is not always initialized (check has_dynamic_lights)
+    // MUTEX ORDER:
+    // when a single thread locks multiple mutexes, order this way to avoid deadlock:
+    // data_dynamic_mutex -> data_static_mutex -> data_skylight_mutex -> data_skylight_static_mutex -> data_static_lights_mutex
+    std::shared_mutex data_skylight_mutex;
+    lighting_color data_skylight[LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE];
+    std::shared_mutex data_static_mutex;
+    lighting_color data_static[LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE];
+    std::shared_mutex data_skylight_static_mutex;
+    lighting_color data_skylight_static[LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE];
+    std::shared_mutex data_dynamic_mutex;
+    lighting_color data_dynamic[LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE];
+    std::shared_mutex data_static_lights_mutex;
+    lighting_chunk_static_light static_lights[LIGHTING_MAX_CHUNKS_LIGHTS];
+    size_t static_lights_count;
+    uint8 x, y, z;
+    bool invalid;
+    bool has_dynamic_lights;
+} lighting_chunk;
 
 // how the light will be affected when light passes through a certain plane
 lighting_color* lightingAffectorsX = NULL;
@@ -350,18 +386,25 @@ void lighting_invalidate_at(sint32 wx, sint32 wy) {
     for (int sz = 0; sz < LIGHTMAP_CHUNKS_Z; sz++) {
         CHUNKRANGEITRXY(lm_x, lm_y, sx, sy, range) {
             lighting_chunk* chunk = &LIGHTINGCHUNK(sz, sy, sx);
-            for (size_t lidx = 0; lidx < chunk->static_lights_count; lidx++) {
-                if (chunk->static_lights[lidx].light.map_x == wx && chunk->static_lights[lidx].light.map_y == wy) {
-                    chunk->static_lights[lidx] = chunk->static_lights[chunk->static_lights_count - 1];
-                    chunk->static_lights_count--;
-                    lidx--;
-                }
-            }
 
-            memset(chunk->data_static, 0, sizeof(chunk->data_static));
-            memcpy(chunk->data_skylight_static, chunk->data_skylight, sizeof(chunk->data_skylight));
-            for (size_t light_idx = 0; light_idx < chunk->static_lights_count; light_idx++) {
-                chunk->static_lights[light_idx].is_drawn = false;
+            {
+                std::unique_lock<std::shared_mutex> lock1(chunk->data_static_mutex);
+                std::unique_lock<std::shared_mutex> lock2(chunk->data_skylight_static_mutex);
+                std::unique_lock<std::shared_mutex> lock3(chunk->data_static_lights_mutex);
+
+                for (size_t lidx = 0; lidx < chunk->static_lights_count; lidx++) {
+                    if (chunk->static_lights[lidx].light.map_x == wx && chunk->static_lights[lidx].light.map_y == wy) {
+                        chunk->static_lights[lidx] = chunk->static_lights[chunk->static_lights_count - 1];
+                        chunk->static_lights_count--;
+                        lidx--;
+                    }
+                }
+
+                memset(chunk->data_static, 0, sizeof(chunk->data_static));
+                memcpy(chunk->data_skylight_static, chunk->data_skylight, sizeof(chunk->data_skylight));
+                for (size_t light_idx = 0; light_idx < chunk->static_lights_count; light_idx++) {
+                    chunk->static_lights[light_idx].is_drawn = false;
+                }
             }
 
             outdated_static.push(chunk);
@@ -505,6 +548,7 @@ void lighting_init() {
 
 void lighting_invalidate_all() {
     // invalidate/recompute all columns ((re)loads all lights on the map)
+    // TODO: (?) this is really slow as lighting_invalidate_at iterates adjacent chunks constantly
     for (int y = 0; y < MAXIMUM_MAP_SIZE_PRACTICAL - 1; y++) {
         for (int x = 0; x < MAXIMUM_MAP_SIZE_PRACTICAL - 1; x++) {
             lighting_invalidate_at(x, y);
@@ -820,7 +864,11 @@ static void lighting_update_static_light(lighting_light& light) {
 
     CHUNKRANGEITRXYZ(lm_x, lm_y, lm_z, sx, sy, sz, range) {
         lighting_chunk* chunk = &LIGHTINGCHUNK(sz, sy, sx);
-        
+
+        std::unique_lock<std::shared_mutex> lock1(chunk->data_static_mutex);
+        std::unique_lock<std::shared_mutex> lock2(chunk->data_skylight_static_mutex);
+        std::unique_lock<std::shared_mutex> lock3(chunk->data_static_lights_mutex);
+
         // where's this light?
         for (size_t light_idx = 0; light_idx < chunk->static_lights_count; light_idx++) {
             // this isn't garantueed to work properly (two lights with equal data can be at the same position)
@@ -948,14 +996,20 @@ static void lighting_add_dynamic(lighting_update_batch* updated_batch, sint16 x,
 
     CHUNKRANGEITRXYZ(lm_x, lm_y, lm_z, ch_x, ch_y, ch_z, range) {
         lighting_chunk* chunk = &LIGHTINGCHUNK(ch_z, ch_y, ch_x);
-        if (!chunk->has_dynamic_lights) {
-            memcpy(chunk->data_dynamic, chunk->data_skylight_static, sizeof(chunk->data_static));
-            chunk->has_dynamic_lights = true;
 
-            dynamic_chunks.insert(chunk);
-            //updated_batch->updated_chunks[updated_batch->update_count++] = chunk;
+        {
+            std::unique_lock<std::shared_mutex> lock1(chunk->data_dynamic_mutex);
+            if (!chunk->has_dynamic_lights) {
+
+                std::unique_lock<std::shared_mutex> lock2(chunk->data_skylight_static_mutex);
+                memcpy(chunk->data_dynamic, chunk->data_skylight_static, sizeof(chunk->data_dynamic));
+                chunk->has_dynamic_lights = true;
+
+                dynamic_chunks.insert(chunk);
+                //updated_batch->updated_chunks[updated_batch->update_count++] = chunk;
+            }
+            light_expansion_apply(light, map, chunk, chunk->data_dynamic);
         }
-        light_expansion_apply(light, map, chunk, chunk->data_dynamic);
 
         {
             std::lock_guard<std::mutex> lock(outdated_gpu_mutex);
@@ -1045,40 +1099,47 @@ static void lighting_enqueue_next_skylight_batch() {
 }
 
 static void lighting_update_skylight(lighting_chunk* chunk) {
-    for (int upd_idx = 0; upd_idx < LIGHTMAP_CHUNK_SIZE * LIGHTMAP_CHUNK_SIZE * LIGHTMAP_CHUNK_SIZE; upd_idx++) {
-        const rct_xyz16& cell_coord = skylight_cell_itr[upd_idx];
-        int w_x = chunk->x * LIGHTMAP_CHUNK_SIZE + cell_coord.x;
-        int w_y = chunk->y * LIGHTMAP_CHUNK_SIZE + cell_coord.y;
-        int w_z = chunk->z * LIGHTMAP_CHUNK_SIZE + cell_coord.z;
+    {
+        std::shared_lock<std::shared_mutex> lock1(chunk->data_static_mutex);
+        std::unique_lock<std::shared_mutex> lock2(chunk->data_skylight_static_mutex);
 
-        lighting_color from_x = lighting_get_skylight_at(w_x + skylight_delta.x, w_y, w_z);
-        lighting_color from_y = lighting_get_skylight_at(w_x, w_y + skylight_delta.y, w_z);
-        lighting_color from_z = lighting_get_skylight_at(w_x, w_y, w_z + skylight_delta.z);
+        for (int upd_idx = 0; upd_idx < LIGHTMAP_CHUNK_SIZE * LIGHTMAP_CHUNK_SIZE * LIGHTMAP_CHUNK_SIZE; upd_idx++) {
+            const rct_xyz16& cell_coord = skylight_cell_itr[upd_idx];
+            int w_x = chunk->x * LIGHTMAP_CHUNK_SIZE + cell_coord.x;
+            int w_y = chunk->y * LIGHTMAP_CHUNK_SIZE + cell_coord.y;
+            int w_z = chunk->z * LIGHTMAP_CHUNK_SIZE + cell_coord.z;
 
-        lighting_multiply(&from_x, lightingAffectorsX[LAIDX(w_y, w_x + (skylight_delta.x > 0), w_z)]);
-        lighting_multiply(&from_y, lightingAffectorsY[LAIDX(w_y + (skylight_delta.y > 0), w_x, w_z)]);
-        lighting_multiply(&from_z, lightingAffectorsZ[LAIDX(w_y, w_x, w_z + (skylight_delta.z < 0))]); // TODO: not sure why this shouldn't be flipped -- it at least offsets the Z axis if it's flipped
+            // this may read data from adjacent chunks, but that's okay as this chunk is not scheduled unless these adjacent chunks have been computed
+            lighting_color from_x = lighting_get_skylight_at(w_x + skylight_delta.x, w_y, w_z);
+            lighting_color from_y = lighting_get_skylight_at(w_x, w_y + skylight_delta.y, w_z);
+            lighting_color from_z = lighting_get_skylight_at(w_x, w_y, w_z + skylight_delta.z);
 
-        float fragx = fabs(skylight_direction[0]);
-        float fragy = fabs(skylight_direction[1]);
-        float fragz = fabs(skylight_direction[2]);
+            lighting_multiply(&from_x, lightingAffectorsX[LAIDX(w_y, w_x + (skylight_delta.x > 0), w_z)]);
+            lighting_multiply(&from_y, lightingAffectorsY[LAIDX(w_y + (skylight_delta.y > 0), w_x, w_z)]);
+            lighting_multiply(&from_z, lightingAffectorsZ[LAIDX(w_y, w_x, w_z + (skylight_delta.z < 0))]); // TODO: not sure why this shouldn't be flipped -- it at least offsets the Z axis if it's flipped
 
-        // interpolate values
-        lighting_color new_skylight_value = {
-            (uint8)(from_x.r * fragx + from_y.r * fragy + from_z.r * fragz),
-            (uint8)(from_x.g * fragx + from_y.g * fragy + from_z.g * fragz),
-            (uint8)(from_x.b * fragx + from_y.b * fragy + from_z.b * fragz)
-        };
+            float fragx = fabs(skylight_direction[0]);
+            float fragy = fabs(skylight_direction[1]);
+            float fragz = fabs(skylight_direction[2]);
 
-        // TODO: refactor to something more efficient
-        lighting_color static_value = chunk->data_static[cell_coord.z][cell_coord.y][cell_coord.x];
+            // interpolate values
+            lighting_color new_skylight_value = {
+                (uint8)(from_x.r * fragx + from_y.r * fragy + from_z.r * fragz),
+                (uint8)(from_x.g * fragx + from_y.g * fragy + from_z.g * fragz),
+                (uint8)(from_x.b * fragx + from_y.b * fragy + from_z.b * fragz)
+            };
 
-        chunk->data_skylight[cell_coord.z][cell_coord.y][cell_coord.x] = new_skylight_value;
-        chunk->data_skylight_static[cell_coord.z][cell_coord.y][cell_coord.x] = {
-            (uint8)(static_value.r + new_skylight_value.r),
-            (uint8)(static_value.g + new_skylight_value.g),
-            (uint8)(static_value.b + new_skylight_value.b),
-        };
+            // does not require a lock, skylight scheduling handles that
+            chunk->data_skylight[cell_coord.z][cell_coord.y][cell_coord.x] = new_skylight_value;
+
+            // TODO: refactor to something more efficient
+            lighting_color static_value = chunk->data_static[cell_coord.z][cell_coord.y][cell_coord.x];
+            chunk->data_skylight_static[cell_coord.z][cell_coord.y][cell_coord.x] = {
+                (uint8)(static_value.r + new_skylight_value.r),
+                (uint8)(static_value.g + new_skylight_value.g),
+                (uint8)(static_value.b + new_skylight_value.b),
+            };
+        }
     }
 
     {
@@ -1149,7 +1210,11 @@ static lighting_update_batch* lighting_update_internal() {
 
             lighting_chunk* chunk = outdated_gpu.frontpop();
             lighting_update_chunk& update_chunk = updated_batch.updated_chunks[updated_batch.update_count++];
-            memcpy(update_chunk.data, chunk->has_dynamic_lights ? chunk->data_dynamic : chunk->data_skylight_static, sizeof(update_chunk.data));
+            {
+                std::shared_lock<std::shared_mutex> lock3(chunk->data_dynamic_mutex);
+                std::shared_lock<std::shared_mutex> lock2(chunk->data_skylight_static_mutex);
+                memcpy(update_chunk.data, chunk->has_dynamic_lights ? chunk->data_dynamic : chunk->data_skylight_static, sizeof(update_chunk.data));
+            }
             update_chunk.x = chunk->x;
             update_chunk.y = chunk->y;
             update_chunk.z = chunk->z;

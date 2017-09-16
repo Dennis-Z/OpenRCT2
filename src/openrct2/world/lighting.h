@@ -29,33 +29,6 @@ typedef struct lighting_color {
 } lighting_color;
 #pragma pack(pop)
 
-// TODO: may want a unique identifier for this (dynamic alloc?)
-typedef struct lighting_light {
-	rct_xyz32 pos;
-	lighting_color color;
-	sint32 map_x;
-	sint32 map_y;
-} lighting_light;
-
-typedef struct lighting_chunk_static_light {
-    lighting_light light;
-    bool is_drawn;
-} lighting_chunk_static_light;
-
-typedef struct lighting_chunk {
-    // data_skylight_static should always be set to data_skylight + data_static, elementswise
-    // data_dynamic is set to data_skylight_static + whatever dynamic lights exists, but is not always initialized (check has_dynamic_lights)
-    lighting_color data_skylight[LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE];
-    lighting_color data_static[LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE];
-    lighting_color data_skylight_static[LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE];
-    lighting_color data_dynamic[LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE];
-    lighting_chunk_static_light static_lights[LIGHTING_MAX_CHUNKS_LIGHTS];
-	size_t static_lights_count;
-	uint8 x, y, z;
-    bool invalid;
-    bool has_dynamic_lights;
-} lighting_chunk;
-
 typedef struct lighting_update_chunk {
     lighting_color data[LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE];
     uint8 x, y, z;
