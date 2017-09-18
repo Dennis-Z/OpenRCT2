@@ -1167,6 +1167,8 @@ static void lighting_enqueue_next_skylight_batch() {
             float new_skylight_direction[3] = { 0.597109f, 0.252454f, -0.150437f };
 
             lighting_set_skylight_direction(new_skylight_direction);
+
+            skylight_batch_current = 0;
         }
 
         for (lighting_chunk* chunk : skylight_batch[skylight_batch_current]) {
