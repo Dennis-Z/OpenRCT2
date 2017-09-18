@@ -19,6 +19,7 @@
 #include "../config/Config.h"
 #include "../Context.h"
 #include "../drawing/drawing.h"
+#include "../drawing/SpriteDisplacement.h"
 #include "../game.h"
 #include "../input.h"
 #include "../localisation/localisation.h"
@@ -701,6 +702,21 @@ static sint32 cc_staff(const utf8 **argv, sint32 argc)
     return 0;
 }
 
+static sint32 cc_link_displacement(const utf8 **argv, sint32 argc)
+{
+    if (argc > 1) {
+        bool valid_int;
+        int sprite_id = console_parse_int(argv[0], &valid_int);
+        if (!valid_int) return 1;
+
+        // TODO: no clue what happens with invalid sprite ids or weird file names
+        link_shape_to_displacement_file(sprite_id, argv[1]);
+
+        console_printf("Updated displacement file (restart required)");
+    }
+    return 0;
+}
+
 static sint32 cc_get(const utf8 **argv, sint32 argc)
 {
     if (argc > 0) {
@@ -1279,7 +1295,8 @@ console_command console_command_table[] = {
     { "twitch", cc_twitch, "Twitch API" },
     { "reset_user_strings", cc_reset_user_strings, "Resets all user-defined strings, to fix incorrectly occurring 'Chosen name in use already' errors.", "reset_user_strings" },
     { "rides", cc_rides, "Ride management.", "rides <subcommand>" },
-    { "staff", cc_staff, "Staff management.", "staff <subcommand>"},
+    { "staff", cc_staff, "Staff management.", "staff <subcommand>" },
+    { "ldp", cc_link_displacement, "Link a sprite its shape to displacement file.", "ldp <spriteid> <file>" },
 };
 
 static sint32 cc_windows(const utf8 **argv, sint32 argc) {

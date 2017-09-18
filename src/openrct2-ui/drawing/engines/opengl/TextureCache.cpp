@@ -24,6 +24,7 @@
 #include <openrct2/core/String.hpp>
 #include "TextureCache.h"
 #include "openrct2/core/Math.hpp"
+#include "openrct2/drawing/SpriteDisplacement.h"
 
 extern "C"
 {
@@ -384,6 +385,7 @@ CachedTextureInfo DisplacementTextureCache::GetOrLoadDisplacementTexture(uint32 
 
 void DisplacementTextureCache::LoadDisplacementsForKnownShapes()
 {
+    // TODO: this will be removed once everything is migrated
     shapeToDisplacement[GetShape(1921)] = "s1lt";
     shapeToDisplacement[GetShape(1918)] = "s1rt";
     shapeToDisplacement[GetShape(1943)] = "s1rb";
@@ -404,148 +406,12 @@ CachedTextureInfo DisplacementTextureCache::LoadDisplacementTexture(uint32 image
 
     image &= 0x7FFFF;
 
-    sint16 dpWidth;
-    sint16 dpHeight;
-    std::vector<uint8> displacement;
+    SpriteDisplacement displacement = get_sprite_displacement(image);
 
-    // shape is known?
-    std::bitset<64 * 64> shape = GetShape(image);
-    auto shapeFile = shapeToDisplacement.find(shape);
-    if (shapeFile != shapeToDisplacement.end())
-    {
-        // load from file
-        // TODO: move
-        char buffer[512];
-        platform_get_openrct_data_path(buffer, 512);
-        Path::Append(buffer, 512, "displacements");
-        Path::Append(buffer, 512, shapeFile->second.c_str());
-        String::Append(buffer, 512, ".raw");
-
-        // TODO: error check + assert sizes
-        std::ifstream stream(buffer, std::ios::in | std::ios::binary);
-        std::vector<uint8> contents((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
-        stream.close();
-
-        dpWidth = contents[0];
-        dpHeight = contents[1];
-        displacement = std::vector<uint8>(dpWidth * dpHeight * 3);
-        memcpy(displacement.data(), contents.data() + 2, dpWidth * dpHeight * 3);
-    }
-    else
-    {
-        // estimate displacement
-        // TODO: move
-        rct_drawpixelinfo * dpi = GetImageAsDPI(image, 0);
-
-        dpWidth = dpi->width;
-        dpHeight = dpi->height;
-        displacement = std::vector<uint8>(dpWidth * dpHeight * 3);
-
-        int leftBottomOffY = 100000;
-        int leftBottomX = 0;
-        int leftBottomY = 0;
-        int rightBottomOffY = 100000;
-        int rightBottomX = 0;
-        int rightBottomY = 0;
-        int leftTopOffY = -100000;
-        int leftTopX = 0;
-        int leftTopY = 0;
-        int rightTopOffY = -100000;
-        int rightTopX = 0;
-        int rightTopY = 0;
-        int leftX = dpi->width - 1;
-        int rightX = 0;
-
-        // find the pixels on the left/right top/bottom "edges" of the bounding box
-        //    /T\
-        //  LT   RT
-        //  /     \
-        // |\     /|
-        // | \   / |
-        //  \ \ / /
-        //  LB v RB
-        //    \B/
-        for (int y = dpi->height - 1; y >= 0; y--) {
-            for (int x = 0; x < dpi->width; x++) {
-                if (dpi->bits[y * dpi->width + x]) {
-                    int thisLeftOffY = (x) - y * 2;
-                    int thisRightOffY = (dpi->width - x) - y * 2;
-                    if (thisLeftOffY < leftBottomOffY) {
-                        leftBottomOffY = thisLeftOffY;
-                        leftBottomX = x;
-                        leftBottomY = y;
-                    }
-                    if (thisRightOffY < rightBottomOffY) {
-                        rightBottomOffY = thisRightOffY;
-                        rightBottomX = x;
-                        rightBottomY = y;
-                    }
-                    if (thisRightOffY > leftTopOffY) {
-                        leftTopOffY = thisRightOffY;
-                        leftTopX = x;
-                        leftTopY = y;
-                    }
-                    if (thisLeftOffY > rightTopOffY) {
-                        rightTopOffY = thisLeftOffY;
-                        rightTopX = x;
-                        rightTopY = y;
-                    }
-
-                    if (x < leftX) leftX = x;
-                    if (x > rightX) rightX = x;
-                }
-            }
-        }
-
-        // from the found pixels, determine top and bottom
-        int topX, topY, bottomX, bottomY;
-
-        // correct right side so that Y values equal
-        int topDeltaY = rightTopY - leftTopY;
-        rightTopX -= topDeltaY * 2;
-        rightTopY -= topDeltaY;
-
-        int bottomDeltaY = rightBottomY - leftBottomY;
-        rightBottomX -= bottomDeltaY * 2;
-        rightBottomY -= bottomDeltaY;
-
-        topX = (rightTopX + leftTopX) / 2;
-        bottomX = (rightBottomX + leftBottomX) / 2;
-        topY = rightTopY - (rightTopX - leftTopX) / 4; // half difference and divide by 2
-        bottomY = rightBottomY + (rightBottomX - leftBottomX) / 4;
-
-        int leftWallYTop = topY + (topX - leftX) / 2;
-        int leftWallYBottom = bottomY - (bottomX - leftX) / 2;
-        int rightWallYTop = topY + (rightX - topX) / 2;
-        int rightWallYBottom = bottomY - (rightX - bottomX) / 2;
-        int wallHeight = Math::Min(leftWallYBottom - leftWallYTop, rightWallYBottom - rightWallYTop);
-        if (wallHeight < 8) wallHeight = 0;
-
-        int wallHeight2 = wallHeight * 2;
-
-        for (int y = dpi->height - 1; y >= 0; y--) {
-            for (int x = 0; x < dpi->width; x++) {
-                int dx = bottomX - x;
-                int dy = ((dpi->height - 1) - y) * 2 - abs(dx);
-                off_t offset = dpi->width * 3 * y + 3 * x;
-                displacement[offset + 0] = Math::Clamp(0, -dx * 2, 255);
-                displacement[offset + 1] = Math::Clamp(0, dx * 2, 255);
-                displacement[offset + 2] = Math::Clamp(0, dy / 2, Math::Min(255, wallHeight));
-                if (dy > wallHeight2) {
-                    displacement[offset + 0] = Math::Clamp(0, (int)displacement[offset + 0] + (dy - wallHeight2), 255);
-                    displacement[offset + 1] = Math::Clamp(0, (int)displacement[offset + 1] + (dy - wallHeight2), 255);
-                }
-            }
-        }
-
-        DeleteDPI(dpi);
-    }
-
-
-    auto cacheInfo = AllocateImage(dpWidth, dpHeight);
+    auto cacheInfo = AllocateImage(displacement.width, displacement.height);
 
     glBindTexture(GL_TEXTURE_2D_ARRAY, _atlasesTexture);
-    glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, cacheInfo.bounds.x, cacheInfo.bounds.y, cacheInfo.index, dpWidth, dpHeight, 1, GL_RGB_INTEGER, GL_UNSIGNED_BYTE, displacement.data());
+    glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, cacheInfo.bounds.x, cacheInfo.bounds.y, cacheInfo.index, displacement.width, displacement.height, 1, GL_RGB_INTEGER, GL_UNSIGNED_BYTE, displacement.data.data());
 
     return cacheInfo;
 }

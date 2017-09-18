@@ -29,6 +29,7 @@
 #include "core/MemoryStream.h"
 #include "core/Path.hpp"
 #include "core/String.hpp"
+#include "drawing/SpriteDisplacement.h"
 #include "FileClassifier.h"
 #include "network/network.h"
 #include "object/ObjectManager.h"
@@ -531,6 +532,8 @@ namespace OpenRCT2
                 network_begin_client(gNetworkStartHost, gNetworkStartPort);
             }
 #endif // DISABLE_NETWORK
+
+            load_known_displacements();
 
             RunGameLoop();
         }
