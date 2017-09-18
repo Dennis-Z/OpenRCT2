@@ -441,7 +441,7 @@ void OpenGLDrawingContext::Initialise()
 
 	glGenTextures(1, &_lightmapTexture);
 	glBindTexture(GL_TEXTURE_3D, _lightmapTexture);
-	glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA, 512, 512, 128, 0, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
+	glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA, LIGHTMAP_SIZE_X, LIGHTMAP_SIZE_Y, LIGHTMAP_SIZE_Z, 0, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
 	glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
