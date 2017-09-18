@@ -29,6 +29,12 @@ typedef struct lighting_color {
 } lighting_color;
 #pragma pack(pop)
 
+typedef struct lighting_color16 {
+    uint16 r;
+    uint16 g;
+    uint16 b;
+} lighting_color16;
+
 typedef struct lighting_update_chunk {
     lighting_color data[LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE];
     uint8 x, y, z;

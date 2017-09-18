@@ -33,7 +33,7 @@ typedef struct lighting_chunk {
     // when a single thread locks multiple mutexes, order this way to avoid deadlock:
     // data_dynamic_mutex -> data_static_mutex -> data_skylight_mutex -> data_skylight_static_mutex -> data_static_lights_mutex
     std::shared_mutex data_skylight_mutex;
-    lighting_color data_skylight[LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE];
+    lighting_color16 data_skylight[LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE];
     std::shared_mutex data_static_mutex;
     lighting_color data_static[LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE];
     std::shared_mutex data_skylight_static_mutex;
@@ -71,7 +71,7 @@ const lighting_color dimmedblack = { 200, 200, 200 };
 const lighting_color dimmedblackside = { 200, 200, 200 };
 const lighting_color dimmedblackvside = { 250, 250, 250 };
 //const lighting_value ambient_sky = { 10 / 2, 20 / 2, 70 / 2 };
-const lighting_color ambient_sky = { 150, 130, 120 };
+const lighting_color16 ambient_sky = { 250 << 8, 130 << 8, 50 << 8 };
 const lighting_color lit = { 255, 255, 255 };
 const lighting_color lightlit = { 180/2, 110/2, 108/2 };
 
@@ -80,6 +80,7 @@ const lighting_color lightlit = { 180/2, 110/2, 108/2 };
                                                                     for (int sx = Math::Max(0, ((lm_x) - (range)) / LIGHTMAP_CHUNK_SIZE); sx <= Math::Min(LIGHTMAP_CHUNKS_X - 1, (lm_x + (range)) / LIGHTMAP_CHUNK_SIZE); sx++)
 #define CHUNKRANGEITRXYZ(lm_x, lm_y, lm_z, sx, sy, sz, range)   for (int sz = Math::Max(0, ((lm_z) - (range) * 2) / LIGHTMAP_CHUNK_SIZE); sz <= Math::Min(LIGHTMAP_CHUNKS_Z - 1, ((lm_z) + (range) * 2) / LIGHTMAP_CHUNK_SIZE); sz++)\
                                                                     CHUNKRANGEITRXY((lm_x), (lm_y), sx, sy, (range))
+#define CHUNKCELLITR(x, y, z) for (sint16 z = 0; z < LIGHTMAP_CHUNK_SIZE; z++) for (sint16 y = 0; y < LIGHTMAP_CHUNK_SIZE; y++) for (sint16 x = 0; x < LIGHTMAP_CHUNK_SIZE; x++)
 
 template <typename T> class queue_set {
 private:
@@ -142,6 +143,17 @@ static void lighting_multiply(lighting_color* target, const lighting_color apply
     uint16 mulr = ((uint16)target->r * apply.r) / 255;
     uint16 mulg = ((uint16)target->g * apply.g) / 255;
     uint16 mulb = ((uint16)target->b * apply.b) / 255;
+    target->r = mulr;
+    target->g = mulg;
+    target->b = mulb;
+}
+
+// multiplies @target light with some multiplier light value @apply
+static void lighting_multiply16(lighting_color16* target, const lighting_color apply) {
+    // don't convert to FP
+    uint32 mulr = ((uint32)target->r * apply.r) / 255;
+    uint32 mulg = ((uint32)target->g * apply.g) / 255;
+    uint32 mulb = ((uint32)target->b * apply.b) / 255;
     target->r = mulr;
     target->g = mulg;
     target->b = mulb;
@@ -278,20 +290,16 @@ static void light_expansion_apply(lighting_light light, lighting_color map[LIGHT
     int lm_z = (int)z - LIGHTMAXSPREAD * 2;
 
     // apply
-    for (int llm_z = 0; llm_z < LIGHTMAP_CHUNK_SIZE; llm_z++) {
-        for (int llm_y = 0; llm_y < LIGHTMAP_CHUNK_SIZE; llm_y++) {
-            for (int llm_x = 0; llm_x < LIGHTMAP_CHUNK_SIZE; llm_x++) {
-                int chlm_x = llm_x + target->x * LIGHTMAP_CHUNK_SIZE;
-                int chlm_y = llm_y + target->y * LIGHTMAP_CHUNK_SIZE;
-                int chlm_z = llm_z + target->z * LIGHTMAP_CHUNK_SIZE;
-                int lp_offset_x = chlm_x - lm_x;
-                int lp_offset_y = chlm_y - lm_y;
-                int lp_offset_z = chlm_z - lm_z;
+    CHUNKCELLITR(llm_x, llm_y, llm_z) {
+        int chlm_x = llm_x + target->x * LIGHTMAP_CHUNK_SIZE;
+        int chlm_y = llm_y + target->y * LIGHTMAP_CHUNK_SIZE;
+        int chlm_z = llm_z + target->z * LIGHTMAP_CHUNK_SIZE;
+        int lp_offset_x = chlm_x - lm_x;
+        int lp_offset_y = chlm_y - lm_y;
+        int lp_offset_z = chlm_z - lm_z;
 
-                if (lp_offset_x >= 0 && lp_offset_x < LIGHTMAXSPREAD * 2 && lp_offset_y >= 0 && lp_offset_y < LIGHTMAXSPREAD * 2 && lp_offset_z >= 0 && lp_offset_z < LIGHTMAXSPREAD * 4) {
-                    lighting_add(&target_data[llm_z][llm_y][llm_x], map[lp_offset_z][lp_offset_y][lp_offset_x]);
-                }
-            }
+        if (lp_offset_x >= 0 && lp_offset_x < LIGHTMAXSPREAD * 2 && lp_offset_y >= 0 && lp_offset_y < LIGHTMAXSPREAD * 2 && lp_offset_z >= 0 && lp_offset_z < LIGHTMAXSPREAD * 4) {
+            lighting_add(&target_data[llm_z][llm_y][llm_x], map[lp_offset_z][lp_offset_y][lp_offset_x]);
         }
     }
 }
@@ -408,7 +416,14 @@ void lighting_invalidate_at(sint32 wx, sint32 wy) {
                 }
 
                 memset(chunk->data_static, 0, sizeof(chunk->data_static));
-                memcpy(chunk->data_skylight_static, chunk->data_skylight, sizeof(chunk->data_skylight));
+                //memcpy(chunk->data_skylight_static, chunk->data_skylight, sizeof(chunk->data_skylight)); 
+
+                CHUNKCELLITR(x, y, z) {
+                    chunk->data_skylight_static[z][y][x].r = chunk->data_skylight[z][y][z].r >> 8;
+                    chunk->data_skylight_static[z][y][x].g = chunk->data_skylight[z][y][z].g >> 8;
+                    chunk->data_skylight_static[z][y][x].b = chunk->data_skylight[z][y][z].b >> 8;
+                }
+
                 for (size_t light_idx = 0; light_idx < chunk->static_lights_count; light_idx++) {
                     chunk->static_lights[light_idx].is_drawn = false;
                 }
@@ -458,7 +473,7 @@ void lighting_invalidate_at(sint32 wx, sint32 wy) {
     }
 
     // revert values to lit...
-    for (int lm_z = 0; lm_z < LIGHTMAP_SIZE_Z; lm_z++) {
+    for (int lm_z = 0; lm_z < LIGHTMAP_SIZE_Z + 1; lm_z++) {
         for (int ulm_x = lm_x; ulm_x <= lm_x + LIGHTING_CELL_SUBDIVISIONS; ulm_x++) {
             SUBCELLITR(sy, lm_y) lightingAffectorsX[LAIDX(sy, ulm_x, lm_z)] = lit;
         }
@@ -523,9 +538,9 @@ void lighting_init() {
     }
 
     // reset affectors to 1^3
-    for (int z = 0; z < LIGHTMAP_SIZE_Z; z++) {
-        for (int y = 0; y < LIGHTMAP_SIZE_Y; y++) {
-            for (int x = 0; x < LIGHTMAP_SIZE_X; x++) {
+    for (int z = 0; z < LIGHTMAP_SIZE_Z + 1; z++) {
+        for (int y = 0; y < LIGHTMAP_SIZE_Y + 1; y++) {
+            for (int x = 0; x < LIGHTMAP_SIZE_X + 1; x++) {
                 lightingAffectorsX[LAIDX(y, x, z)] = lit;
                 lightingAffectorsY[LAIDX(y, x, z)] = lit;
                 lightingAffectorsZ[LAIDX(y, x, z)] = lit;
@@ -555,6 +570,11 @@ void lighting_init() {
 
     if (worker_threads.size() == 0) {
         worker_threads_continue.store(true);
+        worker_threads.push_back(std::thread(lighting_worker_thread));
+        worker_threads.push_back(std::thread(lighting_worker_thread));
+        worker_threads.push_back(std::thread(lighting_worker_thread));
+        worker_threads.push_back(std::thread(lighting_worker_thread));
+        worker_threads.push_back(std::thread(lighting_worker_thread));
         worker_threads.push_back(std::thread(lighting_worker_thread));
     }
 
@@ -588,7 +608,7 @@ void lighting_cleanup() {
 
 void lighting_set_skylight_direction(float direction[3]) {
     memcpy(skylight_direction, direction, sizeof(float) * 3);
-    rct_xyz16 delta = { static_cast<sint16>(direction[0] > 0 ? -1 : 1), static_cast<sint16>(direction[1] > 0 ? -1 : 1), static_cast<sint16>(direction[2] > 0 ? -1 : 1) };
+    rct_xyz16 delta = { static_cast<sint16>(direction[0] > 0 ? 1 : -1), static_cast<sint16>(direction[1] > 0 ? 1 : -1), static_cast<sint16>(direction[2] > 0 ? 1 : -1) };
 
     if (delta.x != skylight_delta.x || delta.y != skylight_delta.y || delta.z != skylight_delta.z) {
         // rebuild chunk iterators...
@@ -596,7 +616,7 @@ void lighting_set_skylight_direction(float direction[3]) {
             skylight_batch[dist].clear();
         }
 
-        rct_xyz16 sourceChunk = { static_cast<sint16>(delta.x == 1 ? LIGHTMAP_CHUNKS_X - 1 : 0), static_cast<sint16>(delta.y == 1 ? LIGHTMAP_CHUNKS_Y - 1 : 0), static_cast<sint16>(delta.z == 1 ? LIGHTMAP_CHUNKS_Z - 1 : 0) };
+        rct_xyz16 sourceChunk = { static_cast<sint16>(delta.x == -1 ? LIGHTMAP_CHUNKS_X - 1 : 0), static_cast<sint16>(delta.y == -1 ? LIGHTMAP_CHUNKS_Y - 1 : 0), static_cast<sint16>(delta.z == -1 ? LIGHTMAP_CHUNKS_Z - 1 : 0) };
         log_info("start at %d %d %d", sourceChunk.x, sourceChunk.y, sourceChunk.z);
 
         for (int z = 0; z < LIGHTMAP_CHUNKS_Z; z++) {
@@ -609,22 +629,20 @@ void lighting_set_skylight_direction(float direction[3]) {
         }
 
         // rebuild cell iterator...
-        rct_xyz16 sourceCell = { static_cast<sint16>(delta.x == 1 ? LIGHTMAP_CHUNK_SIZE - 1 : 0), static_cast<sint16>(delta.y == 1 ? LIGHTMAP_CHUNK_SIZE - 1 : 0), static_cast<sint16>(delta.z == 1 ? LIGHTMAP_CHUNK_SIZE - 1 : 0) };
+        rct_xyz16 sourceCell = { static_cast<sint16>(delta.x == -1 ? LIGHTMAP_CHUNK_SIZE - 1 : 0), static_cast<sint16>(delta.y == -1 ? LIGHTMAP_CHUNK_SIZE - 1 : 0), static_cast<sint16>(delta.z == -1 ? LIGHTMAP_CHUNK_SIZE - 1 : 0) };
 
         int itr_queue_build_pos = 0;
         for (sint16 dist = 0; dist <= LIGHTMAP_CHUNK_SIZE + LIGHTMAP_CHUNK_SIZE + LIGHTMAP_CHUNK_SIZE; dist++) {
-            for (sint16 x = 0; x < LIGHTMAP_CHUNK_SIZE; x++)
-                for (sint16 y = 0; y < LIGHTMAP_CHUNK_SIZE; y++)
-                    for (sint16 z = 0; z < LIGHTMAP_CHUNK_SIZE; z++) {
-                        int thisdist = abs(sourceCell.x - x) + abs(sourceCell.y - y) + abs(sourceCell.z - z);
-                        if (thisdist == dist) skylight_cell_itr[itr_queue_build_pos++] = { x, y, z };
-                    }
+            CHUNKCELLITR(x, y, z) {
+                int thisdist = abs(sourceCell.x - x) + abs(sourceCell.y - y) + abs(sourceCell.z - z);
+                if (thisdist == dist) skylight_cell_itr[itr_queue_build_pos++] = { x, y, z };
+            }
         }
 
         skylight_delta = delta;
     }
 
-    skylight_batch_current = 0;
+    skylight_batch_current = -1;
 
     log_info("Set skylight %f %f %f", direction[0], direction[1], direction[2]);
 }
@@ -774,7 +792,7 @@ static void lighting_update_affectors() {
                         switch (map_element_get_type(map_element))
                         {
                         case MAP_ELEMENT_TYPE_SURFACE: {
-                            for (int z = 0; z < map_element->base_height - 1; z++) {
+                            for (int z = 0; z < map_element->base_height; z++) {
                                 lightingAffectorsX[LAIDX(y, x, z)] = black;
                                 lightingAffectorsY[LAIDX(y, x, z)] = black;
                                 lightingAffectorsX[LAIDX(y, x + 1, z)] = black;
@@ -832,7 +850,7 @@ static void lighting_update_affectors() {
                             if (!(dirs & (1 << map_element_get_direction(map_element)))) {
                                 break;
                             }
-                            for (int z = map_element->base_height - 1; z < map_element->clearance_height; z++) {
+                            for (int z = map_element->base_height; z <= map_element->clearance_height; z++) {
                                 lighting_color affector = black;
                                 if (map_element->properties.wall.type == 54) {
                                     uint8 color = map_element->properties.wall.colour_1;
@@ -1002,10 +1020,10 @@ static lighting_value* lighting_get_dynamic_texel(lighting_update_batch* updated
 }
 */
 
-static void lighting_add_dynamic(lighting_light light) {
+static void lighting_add_dynamic(lighting_light& light) {
     int lm_x = (light.pos.x * LIGHTING_CELL_SUBDIVISIONS) / 32;
     int lm_y = (light.pos.y * LIGHTING_CELL_SUBDIVISIONS) / 32;
-    int lm_z = light.pos.z / 8;
+    int lm_z = light.pos.z / 2;
     int range = 8;
 
     lighting_color map[LIGHTMAXSPREAD * 4 + 1][LIGHTMAXSPREAD * 2 + 1][LIGHTMAXSPREAD * 2 + 1];
@@ -1117,7 +1135,7 @@ static void lighting_update_any_dynamic_light() {
     lighting_add_dynamic(light);
 }
 
-static lighting_color lighting_get_skylight_at(int w_x, int w_y, int w_z) {
+static lighting_color16 lighting_get_skylight_at(int w_x, int w_y, int w_z) {
     // out of bounds?
     if (w_x < 0 || w_y < 0 || w_z < 0 || w_x >= LIGHTMAP_SIZE_X || w_y >= LIGHTMAP_SIZE_Y || w_z >= LIGHTMAP_SIZE_Z)
         return ambient_sky;
@@ -1130,7 +1148,26 @@ static void lighting_enqueue_next_skylight_batch() {
     std::lock_guard<std::mutex> lock(outdated_skylight_mutex);
 
     do {
-        skylight_batch_current = (skylight_batch_current + 1) % (LIGHTMAP_CHUNKS_X + LIGHTMAP_CHUNKS_Y + LIGHTMAP_CHUNKS_Z);
+        skylight_batch_current++;
+        if (skylight_batch_current >= LIGHTMAP_CHUNKS_X + LIGHTMAP_CHUNKS_Y + LIGHTMAP_CHUNKS_Z) {
+            float direction[3];
+            float alpha = 0.4f;
+            static float beta = -2.0f;
+            beta += 0.002f;
+
+            direction[0] = cos(alpha) * cos(beta);
+            direction[1] = sin(alpha) * cos(beta);
+            direction[2] = sin(beta);
+
+            float len = fabs(direction[0]) + fabs(direction[1]) + fabs(direction[2]);
+            direction[0] /= len;
+            direction[1] /= len;
+            direction[2] /= len;
+
+            float new_skylight_direction[3] = { 0.597109f, 0.252454f, -0.150437f };
+
+            lighting_set_skylight_direction(new_skylight_direction);
+        }
 
         for (lighting_chunk* chunk : skylight_batch[skylight_batch_current]) {
             outdated_skylight.push(chunk);
@@ -1152,23 +1189,23 @@ static void lighting_update_skylight(lighting_chunk* chunk) {
             int w_z = chunk->z * LIGHTMAP_CHUNK_SIZE + cell_coord.z;
 
             // this may read data from adjacent chunks, but that's okay as this chunk is not scheduled unless these adjacent chunks have been computed
-            lighting_color from_x = lighting_get_skylight_at(w_x + skylight_delta.x, w_y, w_z);
-            lighting_color from_y = lighting_get_skylight_at(w_x, w_y + skylight_delta.y, w_z);
-            lighting_color from_z = lighting_get_skylight_at(w_x, w_y, w_z + skylight_delta.z);
+            lighting_color16 from_x = lighting_get_skylight_at(w_x - skylight_delta.x, w_y, w_z);
+            lighting_color16 from_y = lighting_get_skylight_at(w_x, w_y - skylight_delta.y, w_z);
+            lighting_color16 from_z = lighting_get_skylight_at(w_x, w_y, w_z - skylight_delta.z);
 
-            lighting_multiply(&from_x, lightingAffectorsX[LAIDX(w_y, w_x + (skylight_delta.x > 0), w_z)]);
-            lighting_multiply(&from_y, lightingAffectorsY[LAIDX(w_y + (skylight_delta.y > 0), w_x, w_z)]);
-            lighting_multiply(&from_z, lightingAffectorsZ[LAIDX(w_y, w_x, w_z + (skylight_delta.z < 0))]); // TODO: not sure why this shouldn't be flipped -- it at least offsets the Z axis if it's flipped
+            lighting_multiply16(&from_x, lightingAffectorsX[LAIDX(w_y, w_x + (skylight_delta.x < 0), w_z)]);
+            lighting_multiply16(&from_y, lightingAffectorsY[LAIDX(w_y + (skylight_delta.y < 0), w_x, w_z)]);
+            lighting_multiply16(&from_z, lightingAffectorsZ[LAIDX(w_y, w_x, w_z + (skylight_delta.z < 0))]);
 
             float fragx = fabs(skylight_direction[0]);
             float fragy = fabs(skylight_direction[1]);
             float fragz = fabs(skylight_direction[2]);
 
             // interpolate values
-            lighting_color new_skylight_value = {
-                (uint8)(from_x.r * fragx + from_y.r * fragy + from_z.r * fragz),
-                (uint8)(from_x.g * fragx + from_y.g * fragy + from_z.g * fragz),
-                (uint8)(from_x.b * fragx + from_y.b * fragy + from_z.b * fragz)
+            lighting_color16 new_skylight_value = {
+                (uint16)Math::Min(from_x.r * fragx + from_y.r * fragy + from_z.r * fragz, 65535.0f),
+                (uint16)Math::Min(from_x.g * fragx + from_y.g * fragy + from_z.g * fragz, 65535.0f),
+                (uint16)Math::Min(from_x.b * fragx + from_y.b * fragy + from_z.b * fragz, 65535.0f)
             };
 
             // does not require a lock, skylight scheduling handles that
@@ -1177,9 +1214,9 @@ static void lighting_update_skylight(lighting_chunk* chunk) {
             // TODO: refactor to something more efficient
             lighting_color static_value = chunk->data_static[cell_coord.z][cell_coord.y][cell_coord.x];
             chunk->data_skylight_static[cell_coord.z][cell_coord.y][cell_coord.x] = {
-                (uint8)(static_value.r + new_skylight_value.r),
-                (uint8)(static_value.g + new_skylight_value.g),
-                (uint8)(static_value.b + new_skylight_value.b),
+                (uint8)(Math::Min((int)static_value.r + (new_skylight_value.r >> 8), 255)),
+                (uint8)(Math::Min((int)static_value.g + (new_skylight_value.g >> 8), 255)),
+                (uint8)(Math::Min((int)static_value.b + (new_skylight_value.b >> 8), 255)),
             };
         }
     }
@@ -1210,12 +1247,12 @@ static void lighting_update_any_skylight() {
 static void lighting_worker_thread() {
     using namespace std::chrono_literals;
 
-    while (worker_threads_continue.load()) { // TODO: may constantly read from cache?
+    while (worker_threads_continue.load()) {
         //std::unique_lock<std::mutex> lock(is_collecting_data_mutex);
         //is_collecting_data_cv.wait(lock, [] { return !is_collecting_data; } );
-        for (int i = 0; i < 5; i++) lighting_update_any_skylight();
+        for (int i = 0; i < 20; i++) lighting_update_any_skylight();
         lighting_update_any_dynamic_light();
-        std::this_thread::sleep_for(1ms);
+        //std::this_thread::sleep_for(100us); // TODO: use condition_variable to not poll constantly but notify?
         //lock.release();
     }
 }
