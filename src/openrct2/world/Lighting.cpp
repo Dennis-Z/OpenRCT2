@@ -132,6 +132,7 @@ std::unordered_set<lighting_chunk*> dynamic_chunks;
 std::mutex dynamic_chunks_mutex;
 std::queue<lighting_light> pending_dynamic_lights;
 std::mutex pending_dynamic_lights_mutex;
+queue_set<uint32> outdated_affector; // elems [uint16 y][uint16 x]
 
 float skylight_direction[3] = { 0.0, 0.0, 0.0 }; // normalized with manhattan distance(!) x + y + z = 1
 uint32 skylight_direction_abs[3] = { 0, 0, 0 }; // abs(skylight_direction) * (2^16) (NOT 2^16-1, this allows for fast division)
@@ -403,6 +404,11 @@ static void lighting_insert_static_light(const lighting_light light) {
     }
 }
 
+static void lighting_invalidate_affector(uint16 y, uint16 x, uint8 directions) {
+    outdated_affector.push(((uint32)y << 16) | x);
+    affectorRecomputeQueue[y][x] |= directions;
+}
+
 void lighting_invalidate_at(sint32 wx, sint32 wy) {
     // remove static lights at this position
     // iterate chunks lights could reach, find lights in this column, remove them
@@ -494,20 +500,20 @@ void lighting_invalidate_at(sint32 wx, sint32 wy) {
     }
 
     // queue rebuilding affectors
-    SUBCELLITR(sy, lm_y) affectorRecomputeQueue[sy][lm_x] = 0b1111;
-    SUBCELLITR(sx, lm_x) affectorRecomputeQueue[lm_y][sx] = 0b1111;
+    SUBCELLITR(sy, lm_y) lighting_invalidate_affector(sy, lm_x, 0b1111);
+    SUBCELLITR(sx, lm_x) lighting_invalidate_affector(lm_y, sx, 0b1111);
 
     if (lm_x > 0) { // east
-        SUBCELLITR(sy, lm_y) affectorRecomputeQueue[sy][lm_x - 1] |= 0b0100;
+        SUBCELLITR(sy, lm_y) lighting_invalidate_affector(sy, lm_x - 1, 0b0100);
     }
     if (lm_y > 0) { // north
-        SUBCELLITR(sx, lm_x) affectorRecomputeQueue[lm_y - 1][sx] |= 0b0010;
+        SUBCELLITR(sx, lm_x) lighting_invalidate_affector(lm_y - 1, sx, 0b0010);
     }
     if (lm_x < LIGHTMAP_SIZE_X - 2) { // east
-        SUBCELLITR(sy, lm_y) affectorRecomputeQueue[sy][lm_x + LIGHTING_CELL_SUBDIVISIONS] |= 0b0001;
+        SUBCELLITR(sy, lm_y) lighting_invalidate_affector(sy, lm_x + LIGHTING_CELL_SUBDIVISIONS, 0b0001);
     }
     if (lm_y < LIGHTMAP_SIZE_Y - 2) { // south
-        SUBCELLITR(sx, lm_x) affectorRecomputeQueue[lm_y + LIGHTING_CELL_SUBDIVISIONS][sx] |= 0b1000;
+        SUBCELLITR(sx, lm_x) lighting_invalidate_affector(lm_y + LIGHTING_CELL_SUBDIVISIONS, sx, 0b1000);
     }
 }
 
@@ -803,27 +809,53 @@ static void lighting_static_light_cast(lighting_value* target_value, lighting_li
 }
 */
 static void lighting_update_affectors() {
-    for (int y = 0; y < LIGHTMAP_SIZE_Y; y++) {
-        for (int x = 0; x < LIGHTMAP_SIZE_X; x++) {
-            uint8 dirs = affectorRecomputeQueue[y][x];
-            if (dirs) {
-                rct_map_element* map_element = map_get_first_element_at(x / LIGHTING_CELL_SUBDIVISIONS, y / LIGHTING_CELL_SUBDIVISIONS);
+    while (!outdated_affector.empty()) {
+        uint32 coords = outdated_affector.frontpop();
+        uint16 x = coords & ((1 << 16) - 1);
+        uint16 y = (coords >> 16) & ((1 << 16) - 1);
+        uint8 dirs = affectorRecomputeQueue[y][x];
+        if (dirs) {
+            rct_map_element* map_element = map_get_first_element_at(x / LIGHTING_CELL_SUBDIVISIONS, y / LIGHTING_CELL_SUBDIVISIONS);
 
-                uint8 quadrant_offset_x = (x / (LIGHTING_CELL_SUBDIVISIONS / 2)) % 2;
-                uint8 quadrant_offset_y = (y / (LIGHTING_CELL_SUBDIVISIONS / 2)) % 2;
-                uint8 quadrant_mask;
-                if (!quadrant_offset_x && !quadrant_offset_y) quadrant_mask = 1 << 2;
-                else if (quadrant_offset_x && !quadrant_offset_y) quadrant_mask = 1 << 1;
-                else if (!quadrant_offset_x && quadrant_offset_y) quadrant_mask = 1 << 3;
-                else quadrant_mask = 1 << 0;
+            uint8 quadrant_offset_x = (x / (LIGHTING_CELL_SUBDIVISIONS / 2)) % 2;
+            uint8 quadrant_offset_y = (y / (LIGHTING_CELL_SUBDIVISIONS / 2)) % 2;
+            uint8 quadrant_mask;
+            if (!quadrant_offset_x && !quadrant_offset_y) quadrant_mask = 1 << 2;
+            else if (quadrant_offset_x && !quadrant_offset_y) quadrant_mask = 1 << 1;
+            else if (!quadrant_offset_x && quadrant_offset_y) quadrant_mask = 1 << 3;
+            else quadrant_mask = 1 << 0;
 
-                // test
-                if (map_element) {
-                    do {
-                        switch (map_element_get_type(map_element))
-                        {
-                        case MAP_ELEMENT_TYPE_SURFACE: {
-                            for (int z = 0; z < map_element->base_height; z++) {
+            // test
+            if (map_element) {
+                do {
+                    switch (map_element_get_type(map_element))
+                    {
+                    case MAP_ELEMENT_TYPE_SURFACE: {
+                        for (int z = 0; z < map_element->base_height; z++) {
+                            lightingAffectorsX[LAIDX(y, x, z)] = black;
+                            lightingAffectorsY[LAIDX(y, x, z)] = black;
+                            lightingAffectorsX[LAIDX(y, x + 1, z)] = black;
+                            lightingAffectorsY[LAIDX(y + 1, x, z)] = black;
+                            lightingAffectorsZ[LAIDX(y, x, z)] = black;
+                            lightingAffectorsZ[LAIDX(y, x, z + 1)] = black;
+                        }
+                        break;
+                    }
+                    case MAP_ELEMENT_TYPE_SCENERY: {
+                        if (!(map_element->flags & quadrant_mask)) continue;
+                        for (int z = map_element->base_height - 1; z < map_element->clearance_height - 1; z++) {
+                            if (map_element->clearance_height - map_element->base_height > 5)
+                            {
+                                // probably a tree or so
+                                lighting_multiply(&lightingAffectorsX[LAIDX(y, x, z)], dimmedblackside);
+                                lighting_multiply(&lightingAffectorsY[LAIDX(y, x, z)], dimmedblackside);
+                                lighting_multiply(&lightingAffectorsX[LAIDX(y, x + 1, z)], dimmedblackside);
+                                lighting_multiply(&lightingAffectorsY[LAIDX(y + 1, x, z)], dimmedblackside);
+                                lighting_multiply(&lightingAffectorsZ[LAIDX(y, x, z)], dimmedblackvside);
+                                lighting_multiply(&lightingAffectorsZ[LAIDX(y, x, z + 1)], dimmedblackvside);
+                            }
+                            else
+                            {
                                 lightingAffectorsX[LAIDX(y, x, z)] = black;
                                 lightingAffectorsY[LAIDX(y, x, z)] = black;
                                 lightingAffectorsX[LAIDX(y, x + 1, z)] = black;
@@ -831,93 +863,68 @@ static void lighting_update_affectors() {
                                 lightingAffectorsZ[LAIDX(y, x, z)] = black;
                                 lightingAffectorsZ[LAIDX(y, x, z + 1)] = black;
                             }
+                        }
+                        break;
+                    }
+                    case MAP_ELEMENT_TYPE_TRACK: {
+                        if (!(map_element->flags & quadrant_mask)) continue;
+                        for (int z = map_element->base_height - 1; z < map_element->clearance_height - 3; z++) {
+                            // TODO check side flag if it should be updated
+                            lighting_multiply(&lightingAffectorsX[LAIDX(y, x, z)], dimmedblackside);
+                            lighting_multiply(&lightingAffectorsY[LAIDX(y, x, z)], dimmedblackside);
+                            lighting_multiply(&lightingAffectorsX[LAIDX(y, x + 1, z)], dimmedblackside);
+                            lighting_multiply(&lightingAffectorsY[LAIDX(y + 1, x, z)], dimmedblackside);
+                            lighting_multiply(&lightingAffectorsZ[LAIDX(y, x, z)], dimmedblack);
+                            lighting_multiply(&lightingAffectorsZ[LAIDX(y, x, z + 1)], dimmedblack);
+                        }
+                        break;
+                    }
+                    case MAP_ELEMENT_TYPE_PATH: {
+                        int z = map_element->base_height - 1;
+                        lightingAffectorsZ[LAIDX(y, x, z)] = black;
+                        break;
+                    }
+                    case MAP_ELEMENT_TYPE_WALL: {
+                        // do not apply if the wall its direction is not queued
+                        if (!(dirs & (1 << map_element_get_direction(map_element)))) {
                             break;
                         }
-                        case MAP_ELEMENT_TYPE_SCENERY: {
-                            if (!(map_element->flags & quadrant_mask)) continue;
-                            for (int z = map_element->base_height - 1; z < map_element->clearance_height - 1; z++) {
-                                if (map_element->clearance_height - map_element->base_height > 5)
-                                {
-                                    // probably a tree or so
-                                    lighting_multiply(&lightingAffectorsX[LAIDX(y, x, z)], dimmedblackside);
-                                    lighting_multiply(&lightingAffectorsY[LAIDX(y, x, z)], dimmedblackside);
-                                    lighting_multiply(&lightingAffectorsX[LAIDX(y, x + 1, z)], dimmedblackside);
-                                    lighting_multiply(&lightingAffectorsY[LAIDX(y + 1, x, z)], dimmedblackside);
-                                    lighting_multiply(&lightingAffectorsZ[LAIDX(y, x, z)], dimmedblackvside);
-                                    lighting_multiply(&lightingAffectorsZ[LAIDX(y, x, z + 1)], dimmedblackvside);
-                                }
-                                else
-                                {
-                                    lightingAffectorsX[LAIDX(y, x, z)] = black;
-                                    lightingAffectorsY[LAIDX(y, x, z)] = black;
-                                    lightingAffectorsX[LAIDX(y, x + 1, z)] = black;
-                                    lightingAffectorsY[LAIDX(y + 1, x, z)] = black;
-                                    lightingAffectorsZ[LAIDX(y, x, z)] = black;
-                                    lightingAffectorsZ[LAIDX(y, x, z + 1)] = black;
+                        for (int z = map_element->base_height; z <= map_element->clearance_height; z++) {
+                            lighting_color affector = black;
+                            if (map_element->properties.wall.type == 54) {
+                                uint8 color = map_element->properties.wall.colour_1;
+                                if (color >= 44 && color < 144) {
+                                    affector.r = TransparentColourTable[color - 44][0] * 255;
+                                    affector.g = TransparentColourTable[color - 44][1] * 255;
+                                    affector.b = TransparentColourTable[color - 44][2] * 255;
                                 }
                             }
-                            break;
-                        }
-                        case MAP_ELEMENT_TYPE_TRACK: {
-                            if (!(map_element->flags & quadrant_mask)) continue;
-                            for (int z = map_element->base_height - 1; z < map_element->clearance_height - 3; z++) {
-                                // TODO check side flag if it should be updated
-                                lighting_multiply(&lightingAffectorsX[LAIDX(y, x, z)], dimmedblackside);
-                                lighting_multiply(&lightingAffectorsY[LAIDX(y, x, z)], dimmedblackside);
-                                lighting_multiply(&lightingAffectorsX[LAIDX(y, x + 1, z)], dimmedblackside);
-                                lighting_multiply(&lightingAffectorsY[LAIDX(y + 1, x, z)], dimmedblackside);
-                                lighting_multiply(&lightingAffectorsZ[LAIDX(y, x, z)], dimmedblack);
-                                lighting_multiply(&lightingAffectorsZ[LAIDX(y, x, z + 1)], dimmedblack);
-                            }
-                            break;
-                        }
-                        case MAP_ELEMENT_TYPE_PATH: {
-                            int z = map_element->base_height - 1;
-                            lightingAffectorsZ[LAIDX(y, x, z)] = black;
-                            break;
-                        }
-                        case MAP_ELEMENT_TYPE_WALL: {
-                            // do not apply if the wall its direction is not queued
-                            if (!(dirs & (1 << map_element_get_direction(map_element)))) {
+                            switch (map_element_get_direction(map_element)) {
+                            case MAP_ELEMENT_DIRECTION_NORTH:
+                                if (y % LIGHTING_CELL_SUBDIVISIONS == LIGHTING_CELL_SUBDIVISIONS - 1) lighting_multiply(&lightingAffectorsY[LAIDX(y + LIGHTING_CELL_SUBDIVISIONS - 1, x, z)], affector);
+                                break;
+                            case MAP_ELEMENT_DIRECTION_SOUTH:
+                                if (y % LIGHTING_CELL_SUBDIVISIONS == 0) lighting_multiply(&lightingAffectorsY[LAIDX(y, x, z)], affector);
+                                break;
+                            case MAP_ELEMENT_DIRECTION_EAST:
+                                if (x % LIGHTING_CELL_SUBDIVISIONS == LIGHTING_CELL_SUBDIVISIONS - 1) lighting_multiply(&lightingAffectorsX[LAIDX(y, x + LIGHTING_CELL_SUBDIVISIONS - 1, z)], affector);
+                                break;
+                            case MAP_ELEMENT_DIRECTION_WEST:
+                                if (x % LIGHTING_CELL_SUBDIVISIONS == 0) lighting_multiply(&lightingAffectorsX[LAIDX(y, x, z)], affector);
                                 break;
                             }
-                            for (int z = map_element->base_height; z <= map_element->clearance_height; z++) {
-                                lighting_color affector = black;
-                                if (map_element->properties.wall.type == 54) {
-                                    uint8 color = map_element->properties.wall.colour_1;
-                                    if (color >= 44 && color < 144) {
-                                        affector.r = TransparentColourTable[color - 44][0] * 255;
-                                        affector.g = TransparentColourTable[color - 44][1] * 255;
-                                        affector.b = TransparentColourTable[color - 44][2] * 255;
-                                    }
-                                }
-                                switch (map_element_get_direction(map_element)) {
-                                case MAP_ELEMENT_DIRECTION_NORTH:
-                                    if (y % LIGHTING_CELL_SUBDIVISIONS == LIGHTING_CELL_SUBDIVISIONS - 1) lighting_multiply(&lightingAffectorsY[LAIDX(y + LIGHTING_CELL_SUBDIVISIONS - 1, x, z)], affector);
-                                    break;
-                                case MAP_ELEMENT_DIRECTION_SOUTH:
-                                    if (y % LIGHTING_CELL_SUBDIVISIONS == 0) lighting_multiply(&lightingAffectorsY[LAIDX(y, x, z)], affector);
-                                    break;
-                                case MAP_ELEMENT_DIRECTION_EAST:
-                                    if (x % LIGHTING_CELL_SUBDIVISIONS == LIGHTING_CELL_SUBDIVISIONS - 1) lighting_multiply(&lightingAffectorsX[LAIDX(y, x + LIGHTING_CELL_SUBDIVISIONS - 1, z)], affector);
-                                    break;
-                                case MAP_ELEMENT_DIRECTION_WEST:
-                                    if (x % LIGHTING_CELL_SUBDIVISIONS == 0) lighting_multiply(&lightingAffectorsX[LAIDX(y, x, z)], affector);
-                                    break;
-                                }
-                            }
-                            break;
                         }
-                        }
-                    } while (!map_element_is_last_for_tile(map_element++));
-                }
-                affectorRecomputeQueue[y][x] = 0;
-
-                // invalidate chunk->contains_nonlit_affectors_known
-                for (int sz = 0; sz < LIGHTMAP_CHUNKS_Z; sz++) {
-                    CHUNKRANGEITRXY(x, y, sx, sy, 1) {
-                        LIGHTINGCHUNK(sz, sy, sx).contains_nonlit_affectors_known = false;
+                        break;
                     }
+                    }
+                } while (!map_element_is_last_for_tile(map_element++));
+            }
+            affectorRecomputeQueue[y][x] = 0;
+
+            // invalidate chunk->contains_nonlit_affectors_known
+            for (int sz = 0; sz < LIGHTMAP_CHUNKS_Z; sz++) {
+                CHUNKRANGEITRXY(x, y, sx, sy, 1) {
+                    LIGHTINGCHUNK(sz, sy, sx).contains_nonlit_affectors_known = false;
                 }
             }
         }
@@ -1496,9 +1503,9 @@ static lighting_update_batch* lighting_update_internal() {
 }
 
 void lighting_reset() {
-    for (int y = 0; y < MAXIMUM_MAP_SIZE_PRACTICAL; y++) {
-        for (int x = 0; x < MAXIMUM_MAP_SIZE_PRACTICAL; x++) {
-            affectorRecomputeQueue[y][x] = 0b1111;
+    for (uint16 y = 0; y < LIGHTMAP_SIZE_Y - 1; y++) {
+        for (uint16 x = 0; x < LIGHTMAP_SIZE_X - 1; x++) {
+            lighting_invalidate_affector(y, x, 0b1111);
         }
     }
 }
