@@ -1229,6 +1229,11 @@ template<bool has_static_lights> static bool lighting_update_skylight_rebuild(li
     lighting_color16 first_band_color = {};
     bool first_band_color_varies = false;
     bool exec_affectors = !chunk->contains_nonlit_affectors_known || chunk->contains_nonlit_affectors;
+
+    // TODO: optimize: pull the special skylight readings out of here, split the readings from X/Y/Z
+    //   -> this is then thus a seven-pass approach, allows optimizing local skylight readings to be actually local without extra checks
+    //   -> also allows determining if it's a single-color chunk in advance, so this entire construction can then be skipped
+    //      -> once this is done, optimize !first_band_color_varies so that it iterates without striding (and includes the first band)
     for (size_t upd_idx = 0; upd_idx < skylight_cell_itr_zerodist_count; upd_idx++) {
         const rct_xyz16& cell_coord = skylight_cell_itr[upd_idx];
         sint16 w_x = chunk->x * LIGHTMAP_CHUNK_SIZE + cell_coord.x;
@@ -1271,7 +1276,7 @@ template<bool has_static_lights> static bool lighting_update_skylight_rebuild(li
         };
 
         if (upd_idx == 0) first_band_color = new_skylight_value;
-        else first_band_color_varies = first_band_color_varies || (sint16)(first_band_color.r - new_skylight_value.r) > 128 || (sint16)(first_band_color.g - new_skylight_value.g) > 128 || (sint16)(first_band_color.b - new_skylight_value.b) > 128;
+        else first_band_color_varies = first_band_color_varies || abs((sint16)(first_band_color.r - new_skylight_value.r)) > 128 || abs((sint16)(first_band_color.g - new_skylight_value.g)) > 128 || abs((sint16)(first_band_color.b - new_skylight_value.b)) > 128;
 
         // does not require a lock, skylight scheduling handles that
         chunk->data_skylight[cell_coord.z][cell_coord.y][cell_coord.x] = new_skylight_value;
@@ -1331,6 +1336,8 @@ template<bool has_static_lights> static bool lighting_update_skylight_rebuild(li
     }
     else
     {
+        chunk->skylight_has_single_color = false;
+
         // incoming light is never on an edge
         for (size_t upd_idx = skylight_cell_itr_zerodist_count; upd_idx < LIGHTMAP_CHUNK_SIZE * LIGHTMAP_CHUNK_SIZE * LIGHTMAP_CHUNK_SIZE; upd_idx++) {
             const rct_xyz16& cell_coord = skylight_cell_itr[upd_idx];
