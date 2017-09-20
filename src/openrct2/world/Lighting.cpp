@@ -52,7 +52,7 @@ typedef struct lighting_chunk {
 lighting_color* lightingAffectorsX = NULL;
 lighting_color* lightingAffectorsY = NULL;
 lighting_color* lightingAffectorsZ = NULL;
-#define LAIDX(y, x, z) ((y) * (LIGHTMAP_SIZE_X+1) * (LIGHTMAP_SIZE_Z+1) + (x) * (LIGHTMAP_SIZE_Z+1) + (z))
+#define LAIDX(y, x, z) ((y) * (LIGHTMAP_SIZE_X) * (LIGHTMAP_SIZE_Z) + (x) * (LIGHTMAP_SIZE_Z) + (z))
 
 // lightmap columns whose lightingAffectors are outdated
 // each element contains a bitmap, each bit identifying if a direction should be recomputed (4 bits, 1 << MAP_ELEMENT_DIRECTION_... for each direction)
@@ -126,7 +126,7 @@ std::queue<lighting_light> pending_dynamic_lights;
 std::mutex pending_dynamic_lights_mutex;
 
 float skylight_direction[3] = { 0.0, 0.0, 0.0 }; // normalized with manhattan distance(!) x + y + z = 1
-uint32 skylight_direction_abs[3] = { 0, 0, 0 }; // abs(skylight_direction) * (2^16-1) clamped to uint16 ranges
+uint32 skylight_direction_abs[3] = { 0, 0, 0 }; // abs(skylight_direction) * (2^16) (NOT 2^16-1, this allows for fast division)
 rct_xyz16 skylight_delta = { 0, 0, 0 }; // each value +1 or -1, depending on the direction the skylight travels
 rct_xyz16 skylight_delta_affectordelta = { 0, 0, 0 }; // value is x < 0 ? 1 : 0 of skylight_delta
 std::vector<lighting_chunk*> skylight_batch[LIGHTMAP_CHUNKS_X + LIGHTMAP_CHUNKS_Y + LIGHTMAP_CHUNKS_Z]; // indexed by distance to corner
@@ -269,9 +269,9 @@ static void light_expand_to_map(lighting_light light, lighting_color map[LIGHTMA
         // apply affectors from the boundaries
         // TODO: maybe quad-lerp like done with raycasts? will yield smoother occlusion, especially when a light is moving
         //       will impact performance though (and still not look as smooth as the raycast approach)
-        lighting_multiply(&from_x, lightingAffectorsX[LAIDX(w_y, w_x + (delta->x < 0), w_z)]);
-        lighting_multiply(&from_y, lightingAffectorsY[LAIDX(w_y + (delta->y < 0), w_x, w_z)]);
-        lighting_multiply(&from_z, lightingAffectorsZ[LAIDX(w_y, w_x, w_z + (delta->z < 0))]);
+        lighting_multiply(&from_x, lightingAffectorsX[LAIDX(w_y, Math::Min(LIGHTMAP_SIZE_X - 1, w_x + (delta->x < 0)), w_z)]);
+        lighting_multiply(&from_y, lightingAffectorsY[LAIDX(Math::Min(LIGHTMAP_SIZE_Y - 1, w_y + (delta->y < 0)), w_x, w_z)]);
+        lighting_multiply(&from_z, lightingAffectorsZ[LAIDX(w_y, w_x, Math::Min(LIGHTMAP_SIZE_Z - 1, w_z + (delta->z < 0)))]);
 
         // interpolate values
         map[LIGHTMAXSPREAD * 2 + delta->z][LIGHTMAXSPREAD + delta->y][LIGHTMAXSPREAD + delta->x] = {
@@ -475,7 +475,7 @@ void lighting_invalidate_at(sint32 wx, sint32 wy) {
     }
 
     // revert values to lit...
-    for (int lm_z = 0; lm_z < LIGHTMAP_SIZE_Z + 1; lm_z++) {
+    for (int lm_z = 0; lm_z < LIGHTMAP_SIZE_Z; lm_z++) {
         for (int ulm_x = lm_x; ulm_x <= lm_x + LIGHTING_CELL_SUBDIVISIONS; ulm_x++) {
             SUBCELLITR(sy, lm_y) lightingAffectorsX[LAIDX(sy, ulm_x, lm_z)] = lit;
         }
@@ -519,9 +519,9 @@ void lighting_init() {
 
     lightingChunks = (lighting_chunk*)malloc(sizeof(lighting_chunk) * LIGHTMAP_CHUNKS_X * LIGHTMAP_CHUNKS_Y * LIGHTMAP_CHUNKS_Z);
     // TODO: this should honestly really be a power of two size for fast multiplication for indexing...
-    lightingAffectorsX = (lighting_color*)malloc(sizeof(lighting_color) * (LIGHTMAP_SIZE_X + 1) * (LIGHTMAP_SIZE_Y + 1) * (LIGHTMAP_SIZE_Z + 1));
-    lightingAffectorsY = (lighting_color*)malloc(sizeof(lighting_color) * (LIGHTMAP_SIZE_X + 1) * (LIGHTMAP_SIZE_Y + 1) * (LIGHTMAP_SIZE_Z + 1));
-    lightingAffectorsZ = (lighting_color*)malloc(sizeof(lighting_color) * (LIGHTMAP_SIZE_X + 1) * (LIGHTMAP_SIZE_Y + 1) * (LIGHTMAP_SIZE_Z + 1));
+    lightingAffectorsX = (lighting_color*)malloc(sizeof(lighting_color) * (LIGHTMAP_SIZE_X) * (LIGHTMAP_SIZE_Y) * (LIGHTMAP_SIZE_Z));
+    lightingAffectorsY = (lighting_color*)malloc(sizeof(lighting_color) * (LIGHTMAP_SIZE_X) * (LIGHTMAP_SIZE_Y) * (LIGHTMAP_SIZE_Z));
+    lightingAffectorsZ = (lighting_color*)malloc(sizeof(lighting_color) * (LIGHTMAP_SIZE_X) * (LIGHTMAP_SIZE_Y) * (LIGHTMAP_SIZE_Z));
 	{
 		std::lock_guard<std::mutex> lock(outdated_gpu_mutex);
 		outdated_gpu.clear();
@@ -540,9 +540,9 @@ void lighting_init() {
     }
 
     // reset affectors to 1^3
-    for (int z = 0; z < LIGHTMAP_SIZE_Z + 1; z++) {
-        for (int y = 0; y < LIGHTMAP_SIZE_Y + 1; y++) {
-            for (int x = 0; x < LIGHTMAP_SIZE_X + 1; x++) {
+    for (int z = 0; z < LIGHTMAP_SIZE_Z; z++) {
+        for (int y = 0; y < LIGHTMAP_SIZE_Y; y++) {
+            for (int x = 0; x < LIGHTMAP_SIZE_X; x++) {
                 lightingAffectorsX[LAIDX(y, x, z)] = lit;
                 lightingAffectorsY[LAIDX(y, x, z)] = lit;
                 lightingAffectorsZ[LAIDX(y, x, z)] = lit;
@@ -610,9 +610,9 @@ void lighting_cleanup() {
 
 void lighting_set_skylight_direction(float direction[3]) {
     memcpy(skylight_direction, direction, sizeof(float) * 3);
-    skylight_direction_abs[0] = Math::Clamp(0u, (uint32)(fabs(direction[0]) * 65535.0f), 65535u);
-    skylight_direction_abs[1] = Math::Clamp(0u, (uint32)(fabs(direction[1]) * 65535.0f), 65535u);
-    skylight_direction_abs[2] = Math::Clamp(0u, (uint32)(fabs(direction[2]) * 65535.0f), 65535u);
+    skylight_direction_abs[0] = Math::Clamp(0u, (uint32)(fabs(direction[0]) * 65536.0f), 65536u);
+    skylight_direction_abs[1] = Math::Clamp(0u, (uint32)(fabs(direction[1]) * 65536.0f), 65536u);
+    skylight_direction_abs[2] = Math::Clamp(0u, (uint32)(fabs(direction[2]) * 65536.0f), 65536u);
 
     rct_xyz16 delta = { static_cast<sint16>(direction[0] > 0 ? 1 : -1), static_cast<sint16>(direction[1] > 0 ? 1 : -1), static_cast<sint16>(direction[2] > 0 ? 1 : -1) };
 
@@ -1209,9 +1209,9 @@ static void lighting_update_skylight(lighting_chunk* chunk) {
             lighting_color16 from_y = lighting_get_skylight_at(w_x, w_y - skylight_delta.y, w_z);
             lighting_color16 from_z = lighting_get_skylight_at(w_x, w_y, w_z - skylight_delta.z);
 
-            lighting_multiply16(&from_x, lightingAffectorsX[LAIDX(w_y, w_x + skylight_delta_affectordelta.x, w_z)]);
-            lighting_multiply16(&from_y, lightingAffectorsY[LAIDX(w_y + skylight_delta_affectordelta.y, w_x, w_z)]);
-            lighting_multiply16(&from_z, lightingAffectorsZ[LAIDX(w_y, w_x, w_z + skylight_delta_affectordelta.z)]);
+            lighting_multiply16(&from_x, lightingAffectorsX[LAIDX(w_y, Math::Min(LIGHTMAP_SIZE_X - 1, w_x + skylight_delta_affectordelta.x), w_z)]);
+            lighting_multiply16(&from_y, lightingAffectorsY[LAIDX(Math::Min(LIGHTMAP_SIZE_Y - 1, w_y + skylight_delta_affectordelta.y), w_x, w_z)]);
+            lighting_multiply16(&from_z, lightingAffectorsZ[LAIDX(w_y, w_x, Math::Min(LIGHTMAP_SIZE_Z - 1, w_z + skylight_delta_affectordelta.z))]);
 
             uint32 fragx = skylight_direction_abs[0];
             uint32 fragy = skylight_direction_abs[1];
