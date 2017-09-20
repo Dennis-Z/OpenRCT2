@@ -583,11 +583,11 @@ void lighting_init() {
     if (worker_threads.size() == 0) {
         worker_threads_continue.store(true);
         worker_threads.push_back(std::thread(lighting_worker_thread));
+        /*worker_threads.push_back(std::thread(lighting_worker_thread));
         worker_threads.push_back(std::thread(lighting_worker_thread));
         worker_threads.push_back(std::thread(lighting_worker_thread));
         worker_threads.push_back(std::thread(lighting_worker_thread));
-        worker_threads.push_back(std::thread(lighting_worker_thread));
-        worker_threads.push_back(std::thread(lighting_worker_thread));
+        worker_threads.push_back(std::thread(lighting_worker_thread));*/
     }
 
     lighting_reset();
@@ -1224,7 +1224,7 @@ static void lighting_enqueue_next_skylight_batch() {
     skylight_batch_remaining = (uint8)skylight_batch[skylight_batch_current].size();
 }
 
-static bool lighting_update_skylight_rebuild(lighting_chunk* chunk) {
+template<bool has_static_lights> static bool lighting_update_skylight_rebuild(lighting_chunk* chunk) {
     // incoming light is always on an edge
     lighting_color16 first_band_color = {};
     bool first_band_color_varies = false;
@@ -1276,14 +1276,22 @@ static bool lighting_update_skylight_rebuild(lighting_chunk* chunk) {
         // does not require a lock, skylight scheduling handles that
         chunk->data_skylight[cell_coord.z][cell_coord.y][cell_coord.x] = new_skylight_value;
 
-        // TODO: refactor to something more efficient
-        lighting_color static_value = chunk->data_static[cell_coord.z][cell_coord.y][cell_coord.x];
-        lighting_color new_skylight_static = {
-            (uint8)(Math::Min((int)static_value.r + (new_skylight_value.r >> 8), 255)),
-            (uint8)(Math::Min((int)static_value.g + (new_skylight_value.g >> 8), 255)),
-            (uint8)(Math::Min((int)static_value.b + (new_skylight_value.b >> 8), 255)),
-        };
-        chunk->data_skylight_static[cell_coord.z][cell_coord.y][cell_coord.x] = new_skylight_static;
+        if (has_static_lights) {
+            lighting_color static_value = chunk->data_static[cell_coord.z][cell_coord.y][cell_coord.x];
+            lighting_color new_skylight_static = {
+                (uint8)(Math::Min((int)static_value.r + (new_skylight_value.r >> 8), 255)),
+                (uint8)(Math::Min((int)static_value.g + (new_skylight_value.g >> 8), 255)),
+                (uint8)(Math::Min((int)static_value.b + (new_skylight_value.b >> 8), 255)),
+            };
+            chunk->data_skylight_static[cell_coord.z][cell_coord.y][cell_coord.x] = new_skylight_static;
+        }
+        else {
+            chunk->data_skylight_static[cell_coord.z][cell_coord.y][cell_coord.x] = {
+                (uint8)(new_skylight_value.r >> 8),
+                (uint8)(new_skylight_value.g >> 8),
+                (uint8)(new_skylight_value.b >> 8),
+            };
+        }
     }
     if (((chunk->contains_nonlit_affectors_known && !chunk->contains_nonlit_affectors) || // no affectors at all? (usually sky)
         (first_band_color.r == 0 && first_band_color.g == 0 && first_band_color.b == 0)) // OR first band is black? (usually underground/in buildings) (affectors will keep it black)
@@ -1299,14 +1307,22 @@ static bool lighting_update_skylight_rebuild(lighting_chunk* chunk) {
             const rct_xyz16& cell_coord = skylight_cell_itr[upd_idx];
             chunk->data_skylight[cell_coord.z][cell_coord.y][cell_coord.x] = first_band_color;
 
-            // TODO: refactor to something more efficient
-            lighting_color static_value = chunk->data_static[cell_coord.z][cell_coord.y][cell_coord.x];
-            lighting_color new_skylight_static = {
-                (uint8)(Math::Min((int)static_value.r + (first_band_color.r >> 8), 255)),
-                (uint8)(Math::Min((int)static_value.g + (first_band_color.g >> 8), 255)),
-                (uint8)(Math::Min((int)static_value.b + (first_band_color.b >> 8), 255)),
-            };
-            chunk->data_skylight_static[cell_coord.z][cell_coord.y][cell_coord.x] = new_skylight_static;
+            if (has_static_lights) {
+                lighting_color static_value = chunk->data_static[cell_coord.z][cell_coord.y][cell_coord.x];
+                lighting_color new_skylight_static = {
+                    (uint8)(Math::Min((int)static_value.r + (first_band_color.r >> 8), 255)),
+                    (uint8)(Math::Min((int)static_value.g + (first_band_color.g >> 8), 255)),
+                    (uint8)(Math::Min((int)static_value.b + (first_band_color.b >> 8), 255)),
+                };
+                chunk->data_skylight_static[cell_coord.z][cell_coord.y][cell_coord.x] = new_skylight_static;
+            }
+            else {
+                chunk->data_skylight_static[cell_coord.z][cell_coord.y][cell_coord.x] = {
+                    (uint8)(first_band_color.r >> 8),
+                    (uint8)(first_band_color.g >> 8),
+                    (uint8)(first_band_color.b >> 8),
+                };
+            }
         }
 
         // cache the single color
@@ -1359,14 +1375,21 @@ static bool lighting_update_skylight_rebuild(lighting_chunk* chunk) {
             // does not require a lock, skylight scheduling handles that
             chunk->data_skylight[cell_coord.z][cell_coord.y][cell_coord.x] = new_skylight_value;
 
-            // TODO: refactor to something more efficient
-            lighting_color static_value = chunk->data_static[cell_coord.z][cell_coord.y][cell_coord.x];
-            lighting_color new_skylight_static = {
-                (uint8)(Math::Min((int)static_value.r + (new_skylight_value.r >> 8), 255)),
-                (uint8)(Math::Min((int)static_value.g + (new_skylight_value.g >> 8), 255)),
-                (uint8)(Math::Min((int)static_value.b + (new_skylight_value.b >> 8), 255)),
-            };
-            chunk->data_skylight_static[cell_coord.z][cell_coord.y][cell_coord.x] = new_skylight_static;
+            if (has_static_lights) {
+                lighting_color static_value = chunk->data_static[cell_coord.z][cell_coord.y][cell_coord.x];
+                lighting_color new_skylight_static = {
+                    (uint8)(Math::Min((int)static_value.r + (new_skylight_value.r >> 8), 255)),
+                    (uint8)(Math::Min((int)static_value.g + (new_skylight_value.g >> 8), 255)),
+                    (uint8)(Math::Min((int)static_value.b + (new_skylight_value.b >> 8), 255)),
+                };
+                chunk->data_skylight_static[cell_coord.z][cell_coord.y][cell_coord.x] = new_skylight_static;
+            } else {
+                chunk->data_skylight_static[cell_coord.z][cell_coord.y][cell_coord.x] = {
+                    (uint8)(new_skylight_value.r >> 8),
+                    (uint8)(new_skylight_value.g >> 8),
+                    (uint8)(new_skylight_value.b >> 8),
+                };
+            }
         }
     }
 
@@ -1385,7 +1408,10 @@ static void lighting_update_skylight(lighting_chunk* chunk) {
         std::shared_lock<std::shared_mutex> lock1(chunk->data_static_mutex);
         std::unique_lock<std::shared_mutex> lock2(chunk->data_skylight_static_mutex);
 
-        need_gpu_update = lighting_update_skylight_rebuild(chunk);
+        if (chunk->static_lights_count > 0)
+            need_gpu_update = lighting_update_skylight_rebuild<true>(chunk);
+        else
+            need_gpu_update = lighting_update_skylight_rebuild<false>(chunk);
     }
 
     if (need_gpu_update) {
