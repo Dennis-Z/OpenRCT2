@@ -133,6 +133,7 @@ std::mutex dynamic_chunks_mutex;
 std::queue<lighting_light> pending_dynamic_lights;
 std::mutex pending_dynamic_lights_mutex;
 queue_set<uint32> outdated_affector; // elems [uint16 y][uint16 x]
+queue_set<uint32> outdated_affector_chunk_gpu; // elems [uint16 y][uint16 x]
 
 float skylight_direction[3] = { 0.0, 0.0, 0.0 }; // normalized with manhattan distance(!) x + y + z = 1
 uint32 skylight_direction_abs[3] = { 0, 0, 0 }; // abs(skylight_direction) * (2^16) (NOT 2^16-1, this allows for fast division)
@@ -589,11 +590,11 @@ void lighting_init() {
     if (worker_threads.size() == 0) {
         worker_threads_continue.store(true);
         worker_threads.push_back(std::thread(lighting_worker_thread));
-        /*worker_threads.push_back(std::thread(lighting_worker_thread));
         worker_threads.push_back(std::thread(lighting_worker_thread));
         worker_threads.push_back(std::thread(lighting_worker_thread));
         worker_threads.push_back(std::thread(lighting_worker_thread));
-        worker_threads.push_back(std::thread(lighting_worker_thread));*/
+        //worker_threads.push_back(std::thread(lighting_worker_thread));
+        //worker_threads.push_back(std::thread(lighting_worker_thread));
     }
 
     lighting_reset();
@@ -927,6 +928,8 @@ static void lighting_update_affectors() {
                     LIGHTINGCHUNK(sz, sy, sx).contains_nonlit_affectors_known = false;
                 }
             }
+
+            outdated_affector_chunk_gpu.push(((uint32)(y / LIGHTMAP_CHUNK_SIZE) << 16) | (x / LIGHTMAP_CHUNK_SIZE));
         }
     }
 }
@@ -1203,22 +1206,22 @@ static void lighting_enqueue_next_skylight_batch() {
 
 
             float direction[3];
-            float alpha = 0.4f;
-            static float beta = -2.0f;
-            beta += 0.002f;
+            float alpha = 0.8f;
+            static float beta = -4.0f;
+            beta += 0.001f;
 
+            direction[2] = sin(alpha) * cos(beta);
             direction[0] = cos(alpha) * cos(beta);
-            direction[1] = sin(alpha) * cos(beta);
-            direction[2] = sin(beta);
+            direction[1] = sin(beta);
 
             float len = fabs(direction[0]) + fabs(direction[1]) + fabs(direction[2]);
             direction[0] /= len;
             direction[1] /= len;
             direction[2] /= len;
 
-            float new_skylight_direction[3] = { 0.597109f, 0.252454f, -0.150437f };
+            //float new_skylight_direction[3] = { 0.597109f, 0.252454f, -0.150437f };
 
-            lighting_set_skylight_direction(new_skylight_direction);
+            lighting_set_skylight_direction(direction);
 
             skylight_batch_current = 0;
         }
@@ -1464,6 +1467,10 @@ static void lighting_worker_thread() {
     }
 }
 
+static uint8 lighting_affector_to_interpolate(const lighting_color& color) {
+    return (color.r == 0 && color.g == 0 && color.b == 0) ? 0 : 255;
+}
+
 static lighting_update_batch* lighting_update_internal() {
 
     // update all pending affectors first
@@ -1471,10 +1478,29 @@ static lighting_update_batch* lighting_update_internal() {
 
     static lighting_update_batch updated_batch;
     updated_batch.update_count = 0;
+    updated_batch.update_interpolate_count = 0;
 
-    /*for (int i = 0; i < 100; i++) {
-        lighting_update_any_skylight();
-    }*/
+    // push outdated affectors to the gpu in the form of interpolation data
+    for (int i = 0; i < LIGHTING_MAX_AFFECTOR_CHUNK_UPDATES_PER_FRAME; i++) {
+        if (outdated_affector_chunk_gpu.empty()) break;
+        
+        uint32 chunkidx = outdated_affector_chunk_gpu.frontpop();
+        uint32 x = chunkidx & ((1 << 16) - 1);
+        uint32 y = (chunkidx >> 16) & ((1 << 16) - 1);
+
+        lighting_update_interpolate_chunk& chunk = updated_batch.updated_interpolate_chunks[updated_batch.update_interpolate_count++];
+        chunk.x = x;
+        chunk.y = y;
+
+        for (size_t dy = 0; dy < LIGHTMAP_CHUNK_SIZE; dy++)
+            for (size_t dx = 0; dx < LIGHTMAP_CHUNK_SIZE; dx++)
+                for (size_t z = 0; z < LIGHTMAP_SIZE_Z; z++) {
+                    size_t la_idx = LAIDX(y * LIGHTMAP_CHUNK_SIZE + dy, x * LIGHTMAP_CHUNK_SIZE + dx, z);
+                    chunk.data[z][dy][dx][0] = lighting_affector_to_interpolate(lightingAffectorsX[la_idx]);
+                    chunk.data[z][dy][dx][1] = lighting_affector_to_interpolate(lightingAffectorsY[la_idx]);
+                    chunk.data[z][dy][dx][2] = lighting_affector_to_interpolate(lightingAffectorsZ[la_idx]);
+                }
+    }
 
     lighting_update_static(&updated_batch);
 

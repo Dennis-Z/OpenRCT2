@@ -58,6 +58,10 @@ void Painter::Paint(IDrawingEngine * de)
             lighting_update_chunk& chunk = update_batch->updated_chunks[i];
 			de->UpdateLightmap(chunk.x, chunk.y, chunk.z, (uint8*)chunk.data);
 		}
+        for (size_t i = 0; i < update_batch->update_interpolate_count; i++) {
+            lighting_update_interpolate_chunk& chunk = update_batch->updated_interpolate_chunks[i];
+            de->UpdateLightmapInterpolate(chunk.x, chunk.y, (uint8*)chunk.data);
+        }
 			
         update_palette_effects();
         chat_draw(dpi);

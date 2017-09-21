@@ -86,7 +86,8 @@ private:
     sint32 _clipRight  = 0;
     sint32 _clipBottom = 0;
 
-	GLuint _lightmapTexture = 0;
+    GLuint _lightmapTexture = 0;
+    GLuint _lightmapInterpolateTexture = 0;
 
     struct {
         std::vector<DrawRectCommand> rectangles;
@@ -113,7 +114,8 @@ public:
 	void DrawSpriteRawMasked(sint32 x, sint32 y, uint32 maskImage, uint32 colourImage, LightingSpriteData lightingData) override;
     void DrawSpriteSolid(uint32 image, sint32 x, sint32 y, uint8 colour) override;
     void DrawGlyph(uint32 image, sint32 x, sint32 y, uint8 * palette) override;
-	void UpdateLightmap(uint8 x, uint8 y, uint8 z, uint8* data) override;
+    void UpdateLightmap(uint8 x, uint8 y, uint8 z, uint8* data) override;
+    void UpdateLightmapInterpolate(uint8 x, uint8 y, uint8* data) override;
 
     void FlushCommandBuffers();
 
@@ -227,6 +229,11 @@ public:
 	{
 		_drawingContext->UpdateLightmap(x, y, z, data);
 	}
+
+    void UpdateLightmapInterpolate(uint8 x, uint8 y, uint8* data) override
+    {
+        _drawingContext->UpdateLightmapInterpolate(x, y, data);
+    }
 
     void SetUncappedFrameRate(bool uncapped) override
     {
@@ -418,6 +425,9 @@ OpenGLDrawingContext::OpenGLDrawingContext(OpenGLDrawingEngine * engine)
 
 OpenGLDrawingContext::~OpenGLDrawingContext()
 {
+    glDeleteTextures(1, &_lightmapTexture);
+    glDeleteTextures(1, &_lightmapInterpolateTexture);
+
     delete _drawImageShader;
     delete _drawLineShader;
     delete _fillRectShader;
@@ -447,6 +457,15 @@ void OpenGLDrawingContext::Initialise()
 	glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 	glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+
+    glGenTextures(1, &_lightmapInterpolateTexture);
+    glBindTexture(GL_TEXTURE_3D, _lightmapInterpolateTexture);
+    glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA, LIGHTMAP_SIZE_X, LIGHTMAP_SIZE_Y, LIGHTMAP_SIZE_Z, 0, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
 }
 
 void OpenGLDrawingContext::Resize(sint32 width, sint32 height)
@@ -953,7 +972,8 @@ void OpenGLDrawingContext::FlushImages()
 
     OpenGLAPI::SetTexture(0, GL_TEXTURE_2D_ARRAY, _textureCache->GetAtlasesTexture());
     OpenGLAPI::SetTexture(1, GL_TEXTURE_2D_ARRAY, _displacementTextureCache->GetAtlasesTexture());
-	OpenGLAPI::SetTexture(2, GL_TEXTURE_3D, _lightmapTexture);
+    OpenGLAPI::SetTexture(2, GL_TEXTURE_3D, _lightmapTexture);
+    OpenGLAPI::SetTexture(3, GL_TEXTURE_3D, _lightmapInterpolateTexture);
 
     std::array<float, 4> rotationTransform;
     switch (get_current_rotation() % 4) {
@@ -972,8 +992,14 @@ void OpenGLDrawingContext::FlushImages()
 
 void OpenGLDrawingContext::UpdateLightmap(uint8 x, uint8 y, uint8 z, uint8* data)
 {
-	OpenGLAPI::SetTexture(1, GL_TEXTURE_3D, _lightmapTexture);
-	glTexSubImage3D(GL_TEXTURE_3D, 0, x * 16, y * 16, z * 16, 16, 16, 16, GL_RGB, GL_UNSIGNED_BYTE, data);
+	OpenGLAPI::SetTexture(2, GL_TEXTURE_3D, _lightmapTexture);
+	glTexSubImage3D(GL_TEXTURE_3D, 0, x * LIGHTMAP_CHUNK_SIZE, y * LIGHTMAP_CHUNK_SIZE, z * LIGHTMAP_CHUNK_SIZE, LIGHTMAP_CHUNK_SIZE, LIGHTMAP_CHUNK_SIZE, LIGHTMAP_CHUNK_SIZE, GL_RGB, GL_UNSIGNED_BYTE, data);
+}
+
+void OpenGLDrawingContext::UpdateLightmapInterpolate(uint8 x, uint8 y, uint8* data)
+{
+    OpenGLAPI::SetTexture(3, GL_TEXTURE_3D, _lightmapInterpolateTexture);
+    glTexSubImage3D(GL_TEXTURE_3D, 0, x * LIGHTMAP_CHUNK_SIZE, y * LIGHTMAP_CHUNK_SIZE, 0, LIGHTMAP_CHUNK_SIZE, LIGHTMAP_CHUNK_SIZE, LIGHTMAP_SIZE_Z, GL_RGB, GL_UNSIGNED_BYTE, data);
 }
 
 void OpenGLDrawingContext::SetDPI(rct_drawpixelinfo * dpi)

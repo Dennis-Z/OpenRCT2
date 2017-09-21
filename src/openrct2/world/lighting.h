@@ -15,6 +15,7 @@
 #define LIGHTING_MAX_CHUNKS_LIGHTS 64
 #define LIGHTING_MAX_CLOCKS_PER_FRAME (CLOCKS_PER_SEC / 100)
 #define LIGHTING_MAX_CHUNK_UPDATES_PER_FRAME 400
+#define LIGHTING_MAX_AFFECTOR_CHUNK_UPDATES_PER_FRAME 8
 
 typedef struct LightingSpriteData {
     float prelight;
@@ -40,9 +41,17 @@ typedef struct lighting_update_chunk {
     uint8 x, y, z;
 } lighting_update_chunk;
 
+typedef struct lighting_update_interpolate_chunk {
+    uint8 data[LIGHTMAP_SIZE_Z][LIGHTMAP_CHUNK_SIZE][LIGHTMAP_CHUNK_SIZE][3];
+    uint8 x, y;
+} lighting_update_interpolate_chunk;
+
 typedef struct lighting_update_batch {
     lighting_update_chunk updated_chunks[LIGHTING_MAX_CHUNK_UPDATES_PER_FRAME];
     size_t update_count;
+
+    lighting_update_interpolate_chunk updated_interpolate_chunks[LIGHTING_MAX_AFFECTOR_CHUNK_UPDATES_PER_FRAME];
+    size_t update_interpolate_count;
 } lighting_update_batch;
 
 void lighting_init();

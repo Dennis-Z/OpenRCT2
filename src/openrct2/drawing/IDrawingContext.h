@@ -42,5 +42,6 @@ namespace OpenRCT2 { namespace Drawing
         virtual void DrawSpriteSolid(uint32 image, sint32 x, sint32 y, uint8 colour)                          abstract;
         virtual void DrawGlyph(uint32 image, sint32 x, sint32 y, uint8 * palette)                             abstract;
 		virtual void UpdateLightmap(uint8 x, uint8 y, uint8 z, uint8* data) abstract;
+        virtual void UpdateLightmapInterpolate(uint8 x, uint8 y, uint8* data) abstract;
     };
 } }

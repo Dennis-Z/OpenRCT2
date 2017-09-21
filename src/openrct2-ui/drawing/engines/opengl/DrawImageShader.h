@@ -55,7 +55,8 @@ private:
     GLuint uTexture;
     GLuint uDisplacementTexture;
     GLuint uPalette;
-	GLuint uLightmap;
+    GLuint uLightmap;
+    GLuint uLightmapInterpolate;
     GLuint uRotationTransform;
 
     GLuint vIndex;

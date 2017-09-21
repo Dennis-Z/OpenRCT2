@@ -9,6 +9,7 @@ uniform vec4            uPalette[256];
 uniform usampler2DArray uTexture;
 uniform usampler2DArray uDisplacementTexture;
 uniform sampler3D       uLightmap;
+uniform sampler3D       uLightmapInterpolate;
 uniform mat2            uRotationTransform;
 
 flat in ivec4           fClip;
@@ -40,33 +41,53 @@ void main()
 
     vec4 texel;
 
-    // Read lightmap
+    // Lighting
     vec3 worldPos = fWorldIn.xyz;
     float prelight = fWorldIn.w;
 
     // reads uvec!
     vec3 worldOffset = vec3(texture(uDisplacementTexture, vec3(fTexDisplacementCoords, float(fTexDisplacementAtlas))).xyz) / vec3(64.0, 64.0, 8.0);
+    worldOffset += vec3(-0.075, -0.075, 0.075); // small offset in sprite displacement space, this kicks the faces in the towards-screen cell
     worldOffset.xy = uRotationTransform * worldOffset.xy;
     worldPos += worldOffset;
     
-    vec3 lmPos = worldPos * vec3(2.0, 2.0, 1.0) - vec3(0.5);
+    vec3 lmPos = worldPos * vec3(2.0, 2.0, 1.0);
+    vec3 lmSamplePos = lmPos - vec3(0.5);
     vec3 lmSize = vec3(512.0, 512.0, 128.0);
-    vec3 sample000 = texture(uLightmap, (floor(lmPos + vec3(0.0, 0.0, 0.0)) + vec3(0.5)) / lmSize).rgb;
-    vec3 sample100 = texture(uLightmap, (floor(lmPos + vec3(1.0, 0.0, 0.0)) + vec3(0.5)) / lmSize).rgb;
-    vec3 sample010 = texture(uLightmap, (floor(lmPos + vec3(0.0, 1.0, 0.0)) + vec3(0.5)) / lmSize).rgb;
-    vec3 sample110 = texture(uLightmap, (floor(lmPos + vec3(1.0, 1.0, 0.0)) + vec3(0.5)) / lmSize).rgb;
-    vec3 sample001 = texture(uLightmap, (floor(lmPos + vec3(0.0, 0.0, 1.0)) + vec3(0.5)) / lmSize).rgb;
-    vec3 sample101 = texture(uLightmap, (floor(lmPos + vec3(1.0, 0.0, 1.0)) + vec3(0.5)) / lmSize).rgb;
-    vec3 sample011 = texture(uLightmap, (floor(lmPos + vec3(0.0, 1.0, 1.0)) + vec3(0.5)) / lmSize).rgb;
-    vec3 sample111 = texture(uLightmap, (floor(lmPos + vec3(1.0, 1.0, 1.0)) + vec3(0.5)) / lmSize).rgb;
-    vec3 sample00 = mix(sample000, sample001, fract(lmPos.z));
-    vec3 sample10 = mix(sample100, sample101, fract(lmPos.z));
-    vec3 sample01 = mix(sample010, sample011, fract(lmPos.z));
-    vec3 sample11 = mix(sample110, sample111, fract(lmPos.z));
-    vec3 sample0 = mix(sample00, sample01, fract(lmPos.y));
-    vec3 sample1 = mix(sample10, sample11, fract(lmPos.y));
-    vec3 sample = mix(sample0, sample1, fract(lmPos.x));
+
+    // Lightmap
+    float sampleInterpX = texture(uLightmapInterpolate, vec3(round(lmPos.x) + 0.5, lmPos.y, lmPos.z) / lmSize).x;
+    float sampleInterpY = texture(uLightmapInterpolate, vec3(lmPos.x, round(lmPos.y) + 0.5, lmPos.z) / lmSize).y;
+    float sampleInterpZ = texture(uLightmapInterpolate, vec3(lmPos.x, lmPos.y, round(lmPos.z) + 0.5) / lmSize).z;
+    float fracX = sampleInterpX < 0.5 ? (fract(lmSamplePos.x) > 0.5 ? 1.0 : 0.0) : fract(lmSamplePos.x);
+    float fracY = sampleInterpY < 0.5 ? (fract(lmSamplePos.y) > 0.5 ? 1.0 : 0.0) : fract(lmSamplePos.y);
+    float fracZ = sampleInterpZ < 0.5 ? (fract(lmSamplePos.z) > 0.5 ? 1.0 : 0.0) : fract(lmSamplePos.z);
+    vec3 sample000 = texture(uLightmap, (floor(lmSamplePos + vec3(0.0, 0.0, 0.0)) + vec3(0.5)) / lmSize).rgb;
+    vec3 sample100 = texture(uLightmap, (floor(lmSamplePos + vec3(1.0, 0.0, 0.0)) + vec3(0.5)) / lmSize).rgb;
+    vec3 sample010 = texture(uLightmap, (floor(lmSamplePos + vec3(0.0, 1.0, 0.0)) + vec3(0.5)) / lmSize).rgb;
+    vec3 sample110 = texture(uLightmap, (floor(lmSamplePos + vec3(1.0, 1.0, 0.0)) + vec3(0.5)) / lmSize).rgb;
+    vec3 sample001 = texture(uLightmap, (floor(lmSamplePos + vec3(0.0, 0.0, 1.0)) + vec3(0.5)) / lmSize).rgb;
+    vec3 sample101 = texture(uLightmap, (floor(lmSamplePos + vec3(1.0, 0.0, 1.0)) + vec3(0.5)) / lmSize).rgb;
+    vec3 sample011 = texture(uLightmap, (floor(lmSamplePos + vec3(0.0, 1.0, 1.0)) + vec3(0.5)) / lmSize).rgb;
+    vec3 sample111 = texture(uLightmap, (floor(lmSamplePos + vec3(1.0, 1.0, 1.0)) + vec3(0.5)) / lmSize).rgb;
+    vec3 sample00 = mix(sample000, sample001, fracZ);
+    vec3 sample10 = mix(sample100, sample101, fracZ);
+    vec3 sample01 = mix(sample010, sample011, fracZ);
+    vec3 sample11 = mix(sample110, sample111, fracZ);
+    vec3 sample0 = mix(sample00, sample01, fracY);
+    vec3 sample1 = mix(sample10, sample11, fracY);
+    vec3 sample = mix(sample0, sample1, fracX);
     vec3 lightValue = sample;
+
+    // AO
+    float sampleInterpAOX = min(1.0, 2*texture(uLightmapInterpolate, vec3(lmPos.x + 0.5, lmPos.y, lmPos.z) / lmSize).x);
+    float sampleInterpAOY = min(1.0, 2*texture(uLightmapInterpolate, vec3(lmPos.x, lmPos.y + 0.5, lmPos.z) / lmSize).y);
+    float sampleInterpAOZ = min(1.0, 4*texture(uLightmapInterpolate, vec3(lmPos.x, lmPos.y, lmPos.z + 0.5) / lmSize).z);
+
+    float aoXv = length(vec3(sampleInterpAOX, sampleInterpAOY, sampleInterpAOZ));
+    float aoIntensity = pow(min(1.0, aoXv / sqrt(2)), 0.5);
+    lightValue *= aoIntensity;
+
     vec4 lmmultint = mix(vec4(lightValue * 1.5 + 0.01, 1), vec4(1, 1, 1, 1), prelight);
     vec4 lmaddint = mix(vec4(max(lightValue - 0.25, 0) * 0.5, 0), vec4(0, 0, 0, 0), prelight) * 0;
 
@@ -127,6 +148,4 @@ void main()
     }
 
     oColour.rgb = pow(oColour.rgb, vec3(1.0 / 2.2));
-
-    //oColour.rgb = vec3(worldOffset.rg, 0);
 }

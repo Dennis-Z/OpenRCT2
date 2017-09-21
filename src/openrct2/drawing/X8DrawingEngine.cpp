@@ -170,6 +170,10 @@ void X8DrawingEngine::UpdateLightmap(uint8 x, uint8 y, uint8 z, uint8* data)
 {
 }
 
+void X8DrawingEngine::UpdateLightmapInterpolate(uint8 x, uint8 y, uint8* data)
+{
+}
+
 void X8DrawingEngine::SetUncappedFrameRate(bool uncapped)
 {
     // Not applicable for this engine

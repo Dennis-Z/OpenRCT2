@@ -87,7 +87,8 @@ DrawImageShader::DrawImageShader() : OpenGLShaderProgram("drawimage")
     Use();
     glUniform1i(uTexture, 0);
     glUniform1i(uDisplacementTexture, 1);
-	glUniform1i(uLightmap, 2);
+    glUniform1i(uLightmap, 2);
+    glUniform1i(uLightmapInterpolate, 3);
 }
 
 DrawImageShader::~DrawImageShader()
@@ -103,7 +104,8 @@ void DrawImageShader::GetLocations()
     uTexture            = GetUniformLocation("uTexture");
     uDisplacementTexture      = GetUniformLocation("uDisplacementTexture");
     uPalette            = GetUniformLocation("uPalette");
-	uLightmap           = GetUniformLocation("uLightmap");
+    uLightmap           = GetUniformLocation("uLightmap");
+    uLightmapInterpolate      = GetUniformLocation("uLightmapInterpolate");
     uRotationTransform  = GetUniformLocation("uRotationTransform");
 
     vIndex              = GetAttributeLocation("vIndex");
