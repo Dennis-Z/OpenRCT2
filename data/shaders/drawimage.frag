@@ -40,6 +40,7 @@ void main()
 
     vec4 texel;
 
+    // Read lightmap
     vec3 worldPos = fWorldIn.xyz;
     float prelight = fWorldIn.w;
 
@@ -48,9 +49,24 @@ void main()
     worldOffset.xy = uRotationTransform * worldOffset.xy;
     worldPos += worldOffset;
     
-    vec3 lmPos = worldPos * vec3(2.0, 2.0, 1.0);
-    vec3 sampleVec = lmPos / vec3(512.0, 512.0, 128.0);
-    vec3 lightValue = texture(uLightmap, sampleVec).rgb;
+    vec3 lmPos = worldPos * vec3(2.0, 2.0, 1.0) - vec3(0.5);
+    vec3 lmSize = vec3(512.0, 512.0, 128.0);
+    vec3 sample000 = texture(uLightmap, (floor(lmPos + vec3(0.0, 0.0, 0.0)) + vec3(0.5)) / lmSize).rgb;
+    vec3 sample100 = texture(uLightmap, (floor(lmPos + vec3(1.0, 0.0, 0.0)) + vec3(0.5)) / lmSize).rgb;
+    vec3 sample010 = texture(uLightmap, (floor(lmPos + vec3(0.0, 1.0, 0.0)) + vec3(0.5)) / lmSize).rgb;
+    vec3 sample110 = texture(uLightmap, (floor(lmPos + vec3(1.0, 1.0, 0.0)) + vec3(0.5)) / lmSize).rgb;
+    vec3 sample001 = texture(uLightmap, (floor(lmPos + vec3(0.0, 0.0, 1.0)) + vec3(0.5)) / lmSize).rgb;
+    vec3 sample101 = texture(uLightmap, (floor(lmPos + vec3(1.0, 0.0, 1.0)) + vec3(0.5)) / lmSize).rgb;
+    vec3 sample011 = texture(uLightmap, (floor(lmPos + vec3(0.0, 1.0, 1.0)) + vec3(0.5)) / lmSize).rgb;
+    vec3 sample111 = texture(uLightmap, (floor(lmPos + vec3(1.0, 1.0, 1.0)) + vec3(0.5)) / lmSize).rgb;
+    vec3 sample00 = mix(sample000, sample001, fract(lmPos.z));
+    vec3 sample10 = mix(sample100, sample101, fract(lmPos.z));
+    vec3 sample01 = mix(sample010, sample011, fract(lmPos.z));
+    vec3 sample11 = mix(sample110, sample111, fract(lmPos.z));
+    vec3 sample0 = mix(sample00, sample01, fract(lmPos.y));
+    vec3 sample1 = mix(sample10, sample11, fract(lmPos.y));
+    vec3 sample = mix(sample0, sample1, fract(lmPos.x));
+    vec3 lightValue = sample;
     vec4 lmmultint = mix(vec4(lightValue * 1.5 + 0.01, 1), vec4(1, 1, 1, 1), prelight);
     vec4 lmaddint = mix(vec4(max(lightValue - 0.25, 0) * 0.5, 0), vec4(0, 0, 0, 0), prelight) * 0;
 
