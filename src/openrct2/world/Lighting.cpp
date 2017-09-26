@@ -418,11 +418,11 @@ static void lighting_invalidate_affector(uint16 y, uint16 x, uint8 directions) {
 // MUST have data_static_mutex -> data_skylight_static_mutex locked!
 void lighting_reset_static_data(lighting_chunk* chunk) {
     memset(chunk->data_static, 0, sizeof(chunk->data_static));
-
+    
     CHUNKCELLITR(x, y, z) {
-        chunk->data_skylight_static[z][y][x].r = chunk->data_skylight[z][y][z].r >> 8;
-        chunk->data_skylight_static[z][y][x].g = chunk->data_skylight[z][y][z].g >> 8;
-        chunk->data_skylight_static[z][y][x].b = chunk->data_skylight[z][y][z].b >> 8;
+        chunk->data_skylight_static[z][y][x].r = chunk->data_skylight[z][y][x].r >> 8;
+        chunk->data_skylight_static[z][y][x].g = chunk->data_skylight[z][y][x].g >> 8;
+        chunk->data_skylight_static[z][y][x].b = chunk->data_skylight[z][y][x].b >> 8;
     }
 
     for (size_t light_idx = 0; light_idx < chunk->static_lights_count; light_idx++) {
@@ -1434,9 +1434,9 @@ template<bool has_static_lights> static bool lighting_update_skylight_rebuild(li
 
             // interpolate values
             lighting_color16 new_skylight_value = {
-                (uint16)(Math::Min(from_x.r * fragx + from_y.r * fragy + from_z.r * fragz, 65535u * 65535u) >> 16),
-                (uint16)(Math::Min(from_x.g * fragx + from_y.g * fragy + from_z.g * fragz, 65535u * 65535u) >> 16),
-                (uint16)(Math::Min(from_x.b * fragx + from_y.b * fragy + from_z.b * fragz, 65535u * 65535u) >> 16)
+                (uint16)(Math::Min(from_x.r * fragx + from_y.r * fragy + from_z.r * fragz, 65535u * 65536u) >> 16),
+                (uint16)(Math::Min(from_x.g * fragx + from_y.g * fragy + from_z.g * fragz, 65535u * 65536u) >> 16),
+                (uint16)(Math::Min(from_x.b * fragx + from_y.b * fragy + from_z.b * fragz, 65535u * 65536u) >> 16)
             };
 
             // does not require a lock, skylight scheduling handles that
