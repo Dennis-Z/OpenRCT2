@@ -1568,15 +1568,7 @@ static lighting_update_batch* lighting_update_internal() {
 
     return &updated_batch;
 }
-/*
-void lighting_reset() {
-    for (uint16 y = 0; y < LIGHTMAP_SIZE_Y - 1; y++) {
-        for (uint16 x = 0; x < LIGHTMAP_SIZE_X - 1; x++) {
-            lighting_invalidate_affector(y, x, 0b1111);
-        }
-    }
-}
-*/
+
 lighting_update_batch* lighting_update() {
     return lighting_update_internal();
 }
