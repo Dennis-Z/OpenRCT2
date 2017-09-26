@@ -85,7 +85,7 @@ const lighting_color16 ambient_sky = { 250 << 8, 130 << 8, 50 << 8 };
 const lighting_color lit = { 255, 255, 255 };
 const lighting_color lightlit = { 180/2, 110/2, 108/2 };
 
-#define SUBCELLITR(v, cbidx) for (int v = (cbidx); v < (cbidx) + 2; v++)
+#define SUBCELLITR(v, cbidx) for (int v = (cbidx); v < (cbidx) + LIGHTING_CELL_SUBDIVISIONS; v++)
 #define CHUNKRANGEITRXY(lm_x, lm_y, sx, sy, range)              for (int sy = Math::Max(0, ((lm_y) - (range)) / LIGHTMAP_CHUNK_SIZE); sy <= Math::Min(LIGHTMAP_CHUNKS_Y - 1, ((lm_y) + (range)) / LIGHTMAP_CHUNK_SIZE); sy++)\
                                                                     for (int sx = Math::Max(0, ((lm_x) - (range)) / LIGHTMAP_CHUNK_SIZE); sx <= Math::Min(LIGHTMAP_CHUNKS_X - 1, (lm_x + (range)) / LIGHTMAP_CHUNK_SIZE); sx++)
 #define CHUNKRANGEITRXYZ(lm_x, lm_y, lm_z, sx, sy, sz, range)   for (int sz = Math::Max(0, ((lm_z) - (range) * 2) / LIGHTMAP_CHUNK_SIZE); sz <= Math::Min(LIGHTMAP_CHUNKS_Z - 1, ((lm_z) + (range) * 2) / LIGHTMAP_CHUNK_SIZE); sz++)\
@@ -525,8 +525,7 @@ void lighting_invalidate_affector_at(sint32 wx, sint32 wy) {
     }
 
     // queue rebuilding affectors
-    SUBCELLITR(sy, lm_y) lighting_invalidate_affector(sy, lm_x, 0b1111);
-    SUBCELLITR(sx, lm_x) lighting_invalidate_affector(lm_y, sx, 0b1111);
+    SUBCELLITR(sy, lm_y) SUBCELLITR(sx, lm_x) lighting_invalidate_affector(sy, sx, 0b1111);
 
     if (lm_x > 0) { // east
         SUBCELLITR(sy, lm_y) lighting_invalidate_affector(sy, lm_x - 1, 0b0100);
@@ -534,10 +533,10 @@ void lighting_invalidate_affector_at(sint32 wx, sint32 wy) {
     if (lm_y > 0) { // north
         SUBCELLITR(sx, lm_x) lighting_invalidate_affector(lm_y - 1, sx, 0b0010);
     }
-    if (lm_x < LIGHTMAP_SIZE_X - 2) { // east
+    if (lm_x < LIGHTMAP_SIZE_X - LIGHTING_CELL_SUBDIVISIONS) { // east
         SUBCELLITR(sy, lm_y) lighting_invalidate_affector(sy, lm_x + LIGHTING_CELL_SUBDIVISIONS, 0b0001);
     }
-    if (lm_y < LIGHTMAP_SIZE_Y - 2) { // south
+    if (lm_y < LIGHTMAP_SIZE_Y - LIGHTING_CELL_SUBDIVISIONS) { // south
         SUBCELLITR(sx, lm_x) lighting_invalidate_affector(lm_y + LIGHTING_CELL_SUBDIVISIONS, sx, 0b1000);
     }
 }
