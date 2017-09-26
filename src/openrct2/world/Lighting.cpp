@@ -631,11 +631,25 @@ void lighting_init() {
 }
 
 void lighting_invalidate_all() {
-    // invalidate/recompute all columns ((re)loads all lights on the map)
-    // TODO: (?) this is really slow as lighting_invalidate_at iterates adjacent chunks constantly
-    for (int y = 0; y < MAXIMUM_MAP_SIZE_PRACTICAL - 1; y++) {
-        for (int x = 0; x < MAXIMUM_MAP_SIZE_PRACTICAL - 1; x++) {
-            lighting_invalidate_at(x, y);
+    // remove all static lights rapidly
+    for (int z = 0; z < LIGHTMAP_CHUNKS_Z; z++) {
+        for (int y = 0; y < LIGHTMAP_CHUNKS_Y; y++) {
+            for (int x = 0; x < LIGHTMAP_CHUNKS_X; x++) {
+                lighting_chunk& chunk = LIGHTINGCHUNK(z, y, x);
+                chunk.static_lights_count = 0;
+
+                std::unique_lock<std::shared_mutex> lock1(chunk.data_static_mutex);
+                std::unique_lock<std::shared_mutex> lock2(chunk.data_skylight_static_mutex);
+                lighting_reset_static_data(&chunk);
+            }
+        }
+    }
+
+    // recompute all columns
+    for (int wy = 0; wy < MAXIMUM_MAP_SIZE_PRACTICAL - 1; wy++) {
+        for (int wx = 0; wx < MAXIMUM_MAP_SIZE_PRACTICAL - 1; wx++) {
+            lighting_add_static_lights_at(wx, wy); // add all lights currently here, so this adds added lights and does not re-add removed ones
+            lighting_invalidate_affector_at(wx, wy); // in the case of changes in occluding objects, affectors are invalidated
         }
     }
 }
