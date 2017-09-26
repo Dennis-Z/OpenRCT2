@@ -60,6 +60,8 @@ lighting_color* lightingAffectorsX = NULL;
 lighting_color* lightingAffectorsY = NULL;
 lighting_color* lightingAffectorsZ = NULL;
 #define LAIDX(y, x, z) ((y) * (LIGHTMAP_SIZE_X) * (LIGHTMAP_SIZE_Z) + (x) * (LIGHTMAP_SIZE_Z) + (z))
+std::shared_mutex affectors_mutex;
+std::atomic<bool> affectors_mutex_main_thread_pending; // set if the main thread waits for a unique lock, prevents others from getting a shared lock in a hot loop
 
 // TODO: a queue
 // lightmap columns whose lightingAffectors are outdated
@@ -247,6 +249,9 @@ static void light_expand_to_map(lighting_light light, lighting_color map[LIGHTMA
 
         did_compute_itr_queue = true;
     }
+
+    while (affectors_mutex_main_thread_pending.load());
+    std::shared_lock<std::shared_mutex> lock(affectors_mutex);
 
     // iterate distances (skip 0, 0, 0)
     for (int citr = 1; citr < (LIGHTMAXSPREAD * 4 + 1) * (LIGHTMAXSPREAD * 2 + 1) * (LIGHTMAXSPREAD * 2 + 1); citr++) {
@@ -489,6 +494,9 @@ void lighting_invalidate_at(sint32 wx, sint32 wy) {
         } while (!map_element_is_last_for_tile(map_element++));
     }
 
+    affectors_mutex_main_thread_pending.store(true, std::memory_order_acquire);
+    std::unique_lock<std::shared_mutex> lock(affectors_mutex);
+
     // revert values to lit...
     for (int lm_z = 0; lm_z < LIGHTMAP_SIZE_Z; lm_z++) {
         for (int ulm_x = lm_x; ulm_x <= lm_x + LIGHTING_CELL_SUBDIVISIONS; ulm_x++) {
@@ -516,6 +524,8 @@ void lighting_invalidate_at(sint32 wx, sint32 wy) {
     if (lm_y < LIGHTMAP_SIZE_Y - 2) { // south
         SUBCELLITR(sx, lm_x) lighting_invalidate_affector(lm_y + LIGHTING_CELL_SUBDIVISIONS, sx, 0b1000);
     }
+
+    affectors_mutex_main_thread_pending.store(true, std::memory_order_release);
 }
 
 void lighting_invalidate_around(sint32 wx, sint32 wy) {
@@ -810,6 +820,12 @@ static void lighting_static_light_cast(lighting_value* target_value, lighting_li
 }
 */
 static void lighting_update_affectors() {
+    if (outdated_affector.empty())
+        return;
+
+    affectors_mutex_main_thread_pending.store(true, std::memory_order_acquire);
+    std::unique_lock<std::shared_mutex> lock(affectors_mutex);
+
     while (!outdated_affector.empty()) {
         uint32 coords = outdated_affector.frontpop();
         uint16 x = coords & ((1 << 16) - 1);
@@ -932,6 +948,8 @@ static void lighting_update_affectors() {
             outdated_affector_chunk_gpu.push(((uint32)(y / LIGHTMAP_CHUNK_SIZE) << 16) | (x / LIGHTMAP_CHUNK_SIZE));
         }
     }
+
+    affectors_mutex_main_thread_pending.store(false, std::memory_order_release);
 }
 
 static void lighting_update_static_light(lighting_light& light) {
@@ -1422,6 +1440,9 @@ template<bool has_static_lights> static bool lighting_update_skylight_rebuild(li
 static void lighting_update_skylight(lighting_chunk* chunk) {
     bool need_gpu_update;
     {
+        while (affectors_mutex_main_thread_pending.load());
+        std::shared_lock<std::shared_mutex> lock(affectors_mutex); // not really needed if exec_affectors is false
+
         std::shared_lock<std::shared_mutex> lock1(chunk->data_static_mutex);
         std::unique_lock<std::shared_mutex> lock2(chunk->data_skylight_static_mutex);
 
@@ -1492,6 +1513,7 @@ static lighting_update_batch* lighting_update_internal() {
         chunk.x = x;
         chunk.y = y;
 
+        // don't have to lock affectors_mutex here, the unique_lock is aquired by the main thread only, this code runs on the main thread too
         for (size_t dy = 0; dy < LIGHTMAP_CHUNK_SIZE; dy++)
             for (size_t dx = 0; dx < LIGHTMAP_CHUNK_SIZE; dx++)
                 for (size_t z = 0; z < LIGHTMAP_SIZE_Z; z++) {
