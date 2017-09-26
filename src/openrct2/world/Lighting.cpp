@@ -250,7 +250,7 @@ static void light_expand_to_map(lighting_light light, lighting_color map[LIGHTMA
         did_compute_itr_queue = true;
     }
 
-    while (affectors_mutex_main_thread_pending.load());
+    while (affectors_mutex_main_thread_pending.load()) std::this_thread::yield();
     std::shared_lock<std::shared_mutex> lock(affectors_mutex);
 
     // iterate distances (skip 0, 0, 0)
@@ -415,10 +415,34 @@ static void lighting_invalidate_affector(uint16 y, uint16 x, uint8 directions) {
     affectorRecomputeQueue[y][x] |= directions;
 }
 
-void lighting_invalidate_at(sint32 wx, sint32 wy) {
-    // remove static lights at this position
-    // iterate chunks lights could reach, find lights in this column, remove them
-    int range = 11;
+// MUST have data_static_mutex -> data_skylight_static_mutex locked!
+void lighting_reset_static_data(lighting_chunk* chunk) {
+    memset(chunk->data_static, 0, sizeof(chunk->data_static));
+
+    CHUNKCELLITR(x, y, z) {
+        chunk->data_skylight_static[z][y][x].r = chunk->data_skylight[z][y][z].r >> 8;
+        chunk->data_skylight_static[z][y][x].g = chunk->data_skylight[z][y][z].g >> 8;
+        chunk->data_skylight_static[z][y][x].b = chunk->data_skylight[z][y][z].b >> 8;
+    }
+
+    for (size_t light_idx = 0; light_idx < chunk->static_lights_count; light_idx++) {
+        chunk->static_lights[light_idx].is_drawn = false;
+    }
+
+    // NOTE: this does not require the static/skylight locks
+    // it's not super critical that those are still locked though
+    {
+        std::lock_guard<std::mutex> lock(outdated_static_mutex);
+        outdated_static.push(chunk);
+    }
+    {
+        std::lock_guard<std::mutex> lock(outdated_gpu_mutex);
+        outdated_gpu.push(chunk);
+    }
+}
+
+void lighting_remove_static_lights_at(sint32 wx, sint32 wy) {
+    int range = 11; // TODO: max light range
     sint32 lm_x = wx * LIGHTING_CELL_SUBDIVISIONS;
     sint32 lm_y = wy * LIGHTING_CELL_SUBDIVISIONS;
     for (int sz = 0; sz < LIGHTMAP_CHUNKS_Z; sz++) {
@@ -430,6 +454,8 @@ void lighting_invalidate_at(sint32 wx, sint32 wy) {
                 std::unique_lock<std::shared_mutex> lock2(chunk->data_skylight_static_mutex);
                 std::unique_lock<std::shared_mutex> lock3(chunk->data_static_lights_mutex);
 
+                if (chunk->static_lights_count == 0) continue;
+
                 for (size_t lidx = 0; lidx < chunk->static_lights_count; lidx++) {
                     if (chunk->static_lights[lidx].light.map_x == wx && chunk->static_lights[lidx].light.map_y == wy) {
                         chunk->static_lights[lidx] = chunk->static_lights[chunk->static_lights_count - 1];
@@ -438,29 +464,13 @@ void lighting_invalidate_at(sint32 wx, sint32 wy) {
                     }
                 }
 
-                memset(chunk->data_static, 0, sizeof(chunk->data_static)); 
-
-                CHUNKCELLITR(x, y, z) {
-                    chunk->data_skylight_static[z][y][x].r = chunk->data_skylight[z][y][z].r >> 8;
-                    chunk->data_skylight_static[z][y][x].g = chunk->data_skylight[z][y][z].g >> 8;
-                    chunk->data_skylight_static[z][y][x].b = chunk->data_skylight[z][y][z].b >> 8;
-                }
-
-                for (size_t light_idx = 0; light_idx < chunk->static_lights_count; light_idx++) {
-                    chunk->static_lights[light_idx].is_drawn = false;
-                }
-            }
-            {
-                std::lock_guard<std::mutex> lock(outdated_static_mutex);
-                outdated_static.push(chunk);
-            }
-            {
-                std::lock_guard<std::mutex> lock(outdated_gpu_mutex);
-                outdated_gpu.push(chunk);
+                lighting_reset_static_data(chunk);
             }
         }
     }
+}
 
+void lighting_add_static_lights_at(sint32 wx, sint32 wy) {
     // iterate column
     rct_map_element* map_element = map_get_first_element_at(wx, wy);
     if (map_element) {
@@ -493,9 +503,15 @@ void lighting_invalidate_at(sint32 wx, sint32 wy) {
             }
         } while (!map_element_is_last_for_tile(map_element++));
     }
+}
 
-    affectors_mutex_main_thread_pending.store(true, std::memory_order_acquire);
+void lighting_invalidate_affector_at(sint32 wx, sint32 wy) {
+    sint32 lm_x = wx * LIGHTING_CELL_SUBDIVISIONS;
+    sint32 lm_y = wy * LIGHTING_CELL_SUBDIVISIONS;
+
+    affectors_mutex_main_thread_pending.store(true);
     std::unique_lock<std::shared_mutex> lock(affectors_mutex);
+    affectors_mutex_main_thread_pending.store(false);
 
     // revert values to lit...
     for (int lm_z = 0; lm_z < LIGHTMAP_SIZE_Z; lm_z++) {
@@ -524,8 +540,12 @@ void lighting_invalidate_at(sint32 wx, sint32 wy) {
     if (lm_y < LIGHTMAP_SIZE_Y - 2) { // south
         SUBCELLITR(sx, lm_x) lighting_invalidate_affector(lm_y + LIGHTING_CELL_SUBDIVISIONS, sx, 0b1000);
     }
+}
 
-    affectors_mutex_main_thread_pending.store(true, std::memory_order_release);
+void lighting_invalidate_at(sint32 wx, sint32 wy) {
+    lighting_remove_static_lights_at(wx, wy); // remove all lights that were created here
+    lighting_add_static_lights_at(wx, wy); // add all lights currently here, so this adds added lights and does not re-add removed ones
+    lighting_invalidate_affector_at(wx, wy); // in the case of changes in occluding objects, affectors are invalidated
 }
 
 void lighting_invalidate_around(sint32 wx, sint32 wy) {
@@ -607,7 +627,7 @@ void lighting_init() {
         //worker_threads.push_back(std::thread(lighting_worker_thread));
     }
 
-    lighting_reset();
+    lighting_invalidate_all();
 }
 
 void lighting_invalidate_all() {
@@ -823,8 +843,9 @@ static void lighting_update_affectors() {
     if (outdated_affector.empty())
         return;
 
-    affectors_mutex_main_thread_pending.store(true, std::memory_order_acquire);
+    affectors_mutex_main_thread_pending.store(true);
     std::unique_lock<std::shared_mutex> lock(affectors_mutex);
+    affectors_mutex_main_thread_pending.store(false);
 
     while (!outdated_affector.empty()) {
         uint32 coords = outdated_affector.frontpop();
@@ -948,8 +969,6 @@ static void lighting_update_affectors() {
             outdated_affector_chunk_gpu.push(((uint32)(y / LIGHTMAP_CHUNK_SIZE) << 16) | (x / LIGHTMAP_CHUNK_SIZE));
         }
     }
-
-    affectors_mutex_main_thread_pending.store(false, std::memory_order_release);
 }
 
 static void lighting_update_static_light(lighting_light& light) {
@@ -1440,7 +1459,7 @@ template<bool has_static_lights> static bool lighting_update_skylight_rebuild(li
 static void lighting_update_skylight(lighting_chunk* chunk) {
     bool need_gpu_update;
     {
-        while (affectors_mutex_main_thread_pending.load());
+        while (affectors_mutex_main_thread_pending.load()) std::this_thread::yield();
         std::shared_lock<std::shared_mutex> lock(affectors_mutex); // not really needed if exec_affectors is false
 
         std::shared_lock<std::shared_mutex> lock1(chunk->data_static_mutex);
@@ -1549,7 +1568,7 @@ static lighting_update_batch* lighting_update_internal() {
 
     return &updated_batch;
 }
-
+/*
 void lighting_reset() {
     for (uint16 y = 0; y < LIGHTMAP_SIZE_Y - 1; y++) {
         for (uint16 x = 0; x < LIGHTMAP_SIZE_X - 1; x++) {
@@ -1557,7 +1576,7 @@ void lighting_reset() {
         }
     }
 }
-
+*/
 lighting_update_batch* lighting_update() {
     return lighting_update_internal();
 }
