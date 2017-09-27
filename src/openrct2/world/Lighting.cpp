@@ -144,7 +144,7 @@ rct_xyz16 skylight_delta_affectordelta = { 0, 0, 0 }; // value is x < 0 ? 1 : 0 
 std::vector<lighting_chunk*> skylight_batch[LIGHTMAP_CHUNKS_X + LIGHTMAP_CHUNKS_Y + LIGHTMAP_CHUNKS_Z]; // indexed by distance to corner
 int skylight_batch_current = 0;
 std::atomic<uint8> skylight_batch_remaining;
-rct_xyz16 skylight_cell_itr[LIGHTMAP_CHUNK_SIZE * LIGHTMAP_CHUNK_SIZE * LIGHTMAP_CHUNK_SIZE];
+rct_xyz16 skylight_cell_itr[LIGHTMAP_CHUNK_SIZE * LIGHTMAP_CHUNK_SIZE * LIGHTMAP_CHUNK_SIZE]; // See where skylight_cell_itr is filled for how this array its contents are ordered
 const size_t skylight_cell_itr_zerodist_count = LIGHTMAP_CHUNK_SIZE * LIGHTMAP_CHUNK_SIZE * LIGHTMAP_CHUNK_SIZE - (LIGHTMAP_CHUNK_SIZE - 1) * (LIGHTMAP_CHUNK_SIZE - 1) * (LIGHTMAP_CHUNK_SIZE - 1); // amount of cells at the incoming edge of a chunk (16^3 - 15^3)
 
 std::mutex is_collecting_data_mutex;
@@ -697,13 +697,41 @@ void lighting_set_skylight_direction(float direction[3]) {
         // rebuild cell iterator...
         rct_xyz16 sourceCell = { static_cast<sint16>(delta.x == -1 ? LIGHTMAP_CHUNK_SIZE - 1 : 0), static_cast<sint16>(delta.y == -1 ? LIGHTMAP_CHUNK_SIZE - 1 : 0), static_cast<sint16>(delta.z == -1 ? LIGHTMAP_CHUNK_SIZE - 1 : 0) };
 
+        // This will fill skylight_cell_itr as follows:
+        // Assuming sourceCell = [0, 0, 0]:
+        // [0] = [0, 0, 0]  <- all distances-to-edge 0
+        // [1] = [0, 0, 1]  <- x, y = 0, but z-distance > 0
+        // [2] = [0, 0, 2]  <- x, y = 0, but z-distance > 0
+        // [3] = [0, 0, 3]  <- x, y = 0, but z-distance > 0
+        // [16] = [0, 1, 0]  <- x, z = 0, but y-distance > 0
+        // [17] = [0, 2, 0]  <- x, z = 0, but y-distance > 0
+        // [18] = [0, 3, 0]  <- x, z = 0, but y-distance > 0
+        // [32] = [0, 1, 1]  <- x = 0, but y, z-distance > 0
+
+        // Resulting order is: (where [...] means the axes ... are locked distance 0)
+        // 1 ==> [xyz]
+        // LIGHTMAP_CHUNK_SIZE - 1 ==> [xy]
+        // LIGHTMAP_CHUNK_SIZE - 1 ==> [xz]
+        // (LIGHTMAP_CHUNK_SIZE - 1)^2 ==> [x]
+        // LIGHTMAP_CHUNK_SIZE - 1 ==> [yz]
+        // (LIGHTMAP_CHUNK_SIZE - 1)^2 ==> [y]
+        // (LIGHTMAP_CHUNK_SIZE - 1)^2 ==> [z]
+        // (LIGHTMAP_CHUNK_SIZE - 1)^3 ==> []
+        // In total this is thus 1*1 + 3*(LIGHTMAP_CHUNK_SIZE - 1) + 3*(LIGHTMAP_CHUNK_SIZE - 1)^2 + (LIGHTMAP_CHUNK_SIZE - 1)^3 = LIGHTMAP_CHUNK_SIZE^3
+
         int itr_queue_build_pos = 0;
-        for (sint16 zero_dist_to_edge = 0; zero_dist_to_edge <= 1; zero_dist_to_edge++) {
-            for (sint16 dist = 0; dist <= LIGHTMAP_CHUNK_SIZE + LIGHTMAP_CHUNK_SIZE + LIGHTMAP_CHUNK_SIZE; dist++) {
-                CHUNKCELLITR(x, y, z) {
-                    int thiszerodist_to_edge = Math::Min(Math::Min(abs(sourceCell.x - x), abs(sourceCell.y - y)), abs(sourceCell.z - z));
-                    int thisdist = abs(sourceCell.x - x) + abs(sourceCell.y - y) + abs(sourceCell.z - z);
-                    if (!thiszerodist_to_edge == !zero_dist_to_edge && thisdist == dist) skylight_cell_itr[itr_queue_build_pos++] = { x, y, z };
+        for (sint16 zero_dist_to_edge_x = 0; zero_dist_to_edge_x <= 1; zero_dist_to_edge_x++) {
+            for (sint16 zero_dist_to_edge_y = 0; zero_dist_to_edge_y <= 1; zero_dist_to_edge_y++) {
+                for (sint16 zero_dist_to_edge_z = 0; zero_dist_to_edge_z <= 1; zero_dist_to_edge_z++) {
+                    for (sint16 dist = 0; dist <= LIGHTMAP_CHUNK_SIZE + LIGHTMAP_CHUNK_SIZE + LIGHTMAP_CHUNK_SIZE; dist++) {
+                        CHUNKCELLITR(x, y, z) {
+                            int dist_to_edge_x = abs(sourceCell.x - x);
+                            int dist_to_edge_y = abs(sourceCell.y - y);
+                            int dist_to_edge_z = abs(sourceCell.z - z);
+                            int thisdist = abs(sourceCell.x - x) + abs(sourceCell.y - y) + abs(sourceCell.z - z);
+                            if (!dist_to_edge_x == !zero_dist_to_edge_x && !dist_to_edge_y == !zero_dist_to_edge_y && !dist_to_edge_z == !zero_dist_to_edge_z && thisdist == dist) skylight_cell_itr[itr_queue_build_pos++] = { x, y, z };
+                        }
+                    }
                 }
             }
         }
@@ -1233,15 +1261,6 @@ static void lighting_update_any_dynamic_light() {
     lighting_add_dynamic(light);
 }
 
-static lighting_color16 lighting_get_skylight_at(int w_x, int w_y, int w_z) {
-    // out of bounds?
-    if (w_x < 0 || w_y < 0 || w_z < 0 || w_x >= LIGHTMAP_SIZE_X || w_y >= LIGHTMAP_SIZE_Y || w_z >= LIGHTMAP_SIZE_Z)
-        return ambient_sky;
-
-    lighting_chunk& chunk = LIGHTINGCHUNK(w_z / LIGHTMAP_CHUNK_SIZE, w_y / LIGHTMAP_CHUNK_SIZE, w_x / LIGHTMAP_CHUNK_SIZE);
-    return chunk.data_skylight[w_z % LIGHTMAP_CHUNK_SIZE][w_y % LIGHTMAP_CHUNK_SIZE][w_x % LIGHTMAP_CHUNK_SIZE];
-}
-
 static void lighting_enqueue_next_skylight_batch() {
     std::lock_guard<std::mutex> lock(outdated_skylight_mutex);
 
@@ -1284,80 +1303,207 @@ static void lighting_enqueue_next_skylight_batch() {
     skylight_batch_remaining = (uint8)skylight_batch[skylight_batch_current].size();
 }
 
-template<bool has_static_lights> static bool lighting_update_skylight_rebuild(lighting_chunk* chunk) {
-    // incoming light is always on an edge
+// This function is templated for performance, the compiler will eliminate dead code depending on the template args used
+template<bool has_static_lights, bool exec_affectors> static bool lighting_update_skylight_rebuild(lighting_chunk* chunk) {
+    // tracking if the chunk is a static color
     lighting_color16 first_band_color = {};
     bool first_band_color_varies = false;
-    bool exec_affectors = !chunk->contains_nonlit_affectors_known || chunk->contains_nonlit_affectors;
 
-    // TODO: optimize: pull the special skylight readings out of here, split the readings from X/Y/Z
-    //   -> this is then thus a seven-pass approach, allows optimizing local skylight readings to be actually local without extra checks
-    //   -> also allows determining if it's a single-color chunk in advance, so this entire construction can then be skipped
-    //      -> once this is done, optimize !first_band_color_varies so that it iterates without striding (and includes the first band)
-    for (size_t upd_idx = 0; upd_idx < skylight_cell_itr_zerodist_count; upd_idx++) {
-        const rct_xyz16& cell_coord = skylight_cell_itr[upd_idx];
-        sint16 w_x = chunk->x * LIGHTMAP_CHUNK_SIZE + cell_coord.x;
-        sint16 w_y = chunk->y * LIGHTMAP_CHUNK_SIZE + cell_coord.y;
+    // after this, if chunk_x is NOT nullptr, then reading should be done from that chunk its skylight data
+    // if is IS nullptr, then chunk_x_single_color is always set and that color can be used uniformly for that direction
+    int source_chunk_x_coord = chunk->x - skylight_delta.x;
+    int source_chunk_y_coord = chunk->y - skylight_delta.y;
+    int source_chunk_z_coord = chunk->z - skylight_delta.z;
+    lighting_chunk* chunk_x = source_chunk_x_coord < 0 || source_chunk_x_coord >= LIGHTMAP_CHUNKS_X ? nullptr : &LIGHTINGCHUNK(chunk->z, chunk->y, source_chunk_x_coord);
+    lighting_chunk* chunk_y = source_chunk_y_coord < 0 || source_chunk_y_coord >= LIGHTMAP_CHUNKS_Y ? nullptr : &LIGHTINGCHUNK(chunk->z, source_chunk_y_coord, chunk->x);
+    lighting_chunk* chunk_z = source_chunk_z_coord < 0 || source_chunk_z_coord >= LIGHTMAP_CHUNKS_Z ? nullptr : &LIGHTINGCHUNK(source_chunk_z_coord, chunk->y, chunk->x);
+    lighting_color16 chunk_x_single_color = {};
+    lighting_color16 chunk_y_single_color = {};
+    lighting_color16 chunk_z_single_color = {};
+    if (!chunk_x) chunk_x_single_color = ambient_sky;
+    else if (chunk_x->skylight_has_single_color) { chunk_x_single_color = chunk_x->skylight_single_color; chunk_x = nullptr; }
+    if (!chunk_y) chunk_y_single_color = ambient_sky;
+    else if (chunk_y->skylight_has_single_color) { chunk_y_single_color = chunk_y->skylight_single_color; chunk_y = nullptr; }
+    if (!chunk_z) chunk_z_single_color = ambient_sky;
+    else if (chunk_z->skylight_has_single_color) { chunk_z_single_color = chunk_z->skylight_single_color; chunk_z = nullptr; }
+    int chunk_x_cell_x = skylight_delta.x == 1 ? LIGHTMAP_CHUNK_SIZE - 1 : 0;
+    int chunk_y_cell_y = skylight_delta.y == 1 ? LIGHTMAP_CHUNK_SIZE - 1 : 0;
+    int chunk_z_cell_z = skylight_delta.z == 1 ? LIGHTMAP_CHUNK_SIZE - 1 : 0;
+
+    const uint32 fragx = skylight_direction_abs[0];
+    const uint32 fragy = skylight_direction_abs[1];
+    const uint32 fragz = skylight_direction_abs[2];
+
+    // Various macros are defined below that actually execute the update
+    // They are split to allow code re-use without copy-pasting and without function calls with loads of arguments
+    // The loop below is very hot, so this optimizes the speed a lot as the variants below differ slightly with where they read source colors from
+
+    #define GET_COORDS(cell_coord, w_x, w_y, w_z, upd_idx) \
+        const rct_xyz16& cell_coord = skylight_cell_itr[upd_idx]; \
+        sint16 w_x = chunk->x * LIGHTMAP_CHUNK_SIZE + cell_coord.x; \
+        sint16 w_y = chunk->y * LIGHTMAP_CHUNK_SIZE + cell_coord.y; \
         sint16 w_z = chunk->z * LIGHTMAP_CHUNK_SIZE + cell_coord.z;
 
-        // this may read data from adjacent chunks, but that's okay as this chunk is not scheduled unless these adjacent chunks have been computed
-        lighting_color16 from_x = lighting_get_skylight_at(w_x - skylight_delta.x, w_y, w_z);
-        lighting_color16 from_y = lighting_get_skylight_at(w_x, w_y - skylight_delta.y, w_z);
-        lighting_color16 from_z = lighting_get_skylight_at(w_x, w_y, w_z - skylight_delta.z);
-
-        if (exec_affectors) {
-            lighting_color& affector_x = lightingAffectorsX[LAIDX(w_y, Math::Min(LIGHTMAP_SIZE_X - 1, w_x + skylight_delta_affectordelta.x), w_z)];
-            lighting_color& affector_y = lightingAffectorsY[LAIDX(Math::Min(LIGHTMAP_SIZE_Y - 1, w_y + skylight_delta_affectordelta.y), w_x, w_z)];
-            lighting_color& affector_z = lightingAffectorsZ[LAIDX(w_y, w_x, Math::Min(LIGHTMAP_SIZE_Z - 1, w_z + skylight_delta_affectordelta.z))];
-            lighting_multiply16(&from_x, affector_x);
-            lighting_multiply16(&from_y, affector_y);
-            lighting_multiply16(&from_z, affector_z);
-
-            if (!chunk->contains_nonlit_affectors_known) {
-                if (affector_x.r != lit.r || affector_x.g != lit.g || affector_x.b != lit.b ||
-                    affector_y.r != lit.r || affector_y.g != lit.g || affector_y.b != lit.b ||
-                    affector_z.r != lit.r || affector_z.g != lit.g || affector_z.b != lit.b) {
-                    // this contains an affector that is nonlit
-                    chunk->contains_nonlit_affectors_known = true;
-                    chunk->contains_nonlit_affectors = true;
-                }
-            }
+    #define APPLY_AFFECTORS() \
+        if (exec_affectors) { \
+            lighting_color& affector_x = lightingAffectorsX[LAIDX(w_y, Math::Min(LIGHTMAP_SIZE_X - 1, w_x + skylight_delta_affectordelta.x), w_z)]; \
+            lighting_color& affector_y = lightingAffectorsY[LAIDX(Math::Min(LIGHTMAP_SIZE_Y - 1, w_y + skylight_delta_affectordelta.y), w_x, w_z)]; \
+            lighting_color& affector_z = lightingAffectorsZ[LAIDX(w_y, w_x, Math::Min(LIGHTMAP_SIZE_Z - 1, w_z + skylight_delta_affectordelta.z))]; \
+            lighting_multiply16(&from_x, affector_x); \
+            lighting_multiply16(&from_y, affector_y); \
+            lighting_multiply16(&from_z, affector_z); \
+            \
+            if (!chunk->contains_nonlit_affectors_known) { \
+                if (affector_x.r != lit.r || affector_x.g != lit.g || affector_x.b != lit.b || \
+                    affector_y.r != lit.r || affector_y.g != lit.g || affector_y.b != lit.b || \
+                    affector_z.r != lit.r || affector_z.g != lit.g || affector_z.b != lit.b) { \
+                    chunk->contains_nonlit_affectors_known = true; \
+                    chunk->contains_nonlit_affectors = true; \
+                } \
+            } \
         }
 
-        const uint32 fragx = skylight_direction_abs[0];
-        const uint32 fragy = skylight_direction_abs[1];
-        const uint32 fragz = skylight_direction_abs[2];
-
-        // interpolate values
-        lighting_color16 new_skylight_value = {
-            (uint16)(Math::Min(from_x.r * fragx + from_y.r * fragy + from_z.r * fragz + 1, 65535u * 65536u) >> 16),
-            (uint16)(Math::Min(from_x.g * fragx + from_y.g * fragy + from_z.g * fragz + 1, 65535u * 65536u) >> 16),
-            (uint16)(Math::Min(from_x.b * fragx + from_y.b * fragy + from_z.b * fragz + 1, 65535u * 65536u) >> 16)
+    #define GET_INTERPOLATED_RESULT() \
+        lighting_color16 new_skylight_value = { \
+            (uint16)(Math::Min(from_x.r * fragx + from_y.r * fragy + from_z.r * fragz + 1, 65535u * 65536u) >> 16), \
+            (uint16)(Math::Min(from_x.g * fragx + from_y.g * fragy + from_z.g * fragz + 1, 65535u * 65536u) >> 16), \
+            (uint16)(Math::Min(from_x.b * fragx + from_y.b * fragy + from_z.b * fragz + 1, 65535u * 65536u) >> 16) \
         };
 
-        if (upd_idx == 0) first_band_color = new_skylight_value;
-        else first_band_color_varies = first_band_color_varies || abs((sint16)(first_band_color.r - new_skylight_value.r)) > 128 || abs((sint16)(first_band_color.g - new_skylight_value.g)) > 128 || abs((sint16)(first_band_color.b - new_skylight_value.b)) > 128;
-
-        // does not require a lock, skylight scheduling handles that
-        chunk->data_skylight[cell_coord.z][cell_coord.y][cell_coord.x] = new_skylight_value;
-
-        if (has_static_lights) {
-            lighting_color static_value = chunk->data_static[cell_coord.z][cell_coord.y][cell_coord.x];
-            lighting_color new_skylight_static = {
-                (uint8)(Math::Min((int)static_value.r + (new_skylight_value.r >> 8), 255)),
-                (uint8)(Math::Min((int)static_value.g + (new_skylight_value.g >> 8), 255)),
-                (uint8)(Math::Min((int)static_value.b + (new_skylight_value.b >> 8), 255)),
-            };
-            chunk->data_skylight_static[cell_coord.z][cell_coord.y][cell_coord.x] = new_skylight_static;
+    #define APPLY_RESULT_TO_LIGHTMAP() \
+        chunk->data_skylight[cell_coord.z][cell_coord.y][cell_coord.x] = new_skylight_value; \
+        \
+        if (has_static_lights) { \
+            lighting_color static_value = chunk->data_static[cell_coord.z][cell_coord.y][cell_coord.x]; \
+            lighting_color new_skylight_static = { \
+                (uint8)(Math::Min((int)static_value.r + (new_skylight_value.r >> 8), 255)), \
+                (uint8)(Math::Min((int)static_value.g + (new_skylight_value.g >> 8), 255)), \
+                (uint8)(Math::Min((int)static_value.b + (new_skylight_value.b >> 8), 255)), \
+            }; \
+            chunk->data_skylight_static[cell_coord.z][cell_coord.y][cell_coord.x] = new_skylight_static; \
+        } \
+        else \
+        { \
+            chunk->data_skylight_static[cell_coord.z][cell_coord.y][cell_coord.x] = { \
+                (uint8)(new_skylight_value.r >> 8), \
+                (uint8)(new_skylight_value.g >> 8), \
+                (uint8)(new_skylight_value.b >> 8), \
+            }; \
         }
-        else {
-            chunk->data_skylight_static[cell_coord.z][cell_coord.y][cell_coord.x] = {
-                (uint8)(new_skylight_value.r >> 8),
-                (uint8)(new_skylight_value.g >> 8),
-                (uint8)(new_skylight_value.b >> 8),
-            };
+
+    #define CHECK_SINGLE_COLOR() \
+        first_band_color_varies = first_band_color_varies || abs((sint16)(first_band_color.r - new_skylight_value.r)) > 128 || abs((sint16)(first_band_color.g - new_skylight_value.g)) > 128 || abs((sint16)(first_band_color.b - new_skylight_value.b)) > 128;
+
+    // single color from all sides, short cut check if they're all the same, first_band_color_varies is also known instantly
+    if (!chunk_x && !chunk_y && !chunk_z) {
+        bool cmp_x_z = abs((sint16)(chunk_x_single_color.r - chunk_z_single_color.r)) > 128 || abs((sint16)(chunk_x_single_color.g - chunk_z_single_color.g)) > 128 || abs((sint16)(chunk_x_single_color.b - chunk_z_single_color.b)) > 128;
+        bool cmp_y_z = abs((sint16)(chunk_y_single_color.r - chunk_z_single_color.r)) > 128 || abs((sint16)(chunk_y_single_color.g - chunk_z_single_color.g)) > 128 || abs((sint16)(chunk_y_single_color.b - chunk_z_single_color.b)) > 128;
+        first_band_color_varies = cmp_x_z || cmp_y_z;
+        first_band_color = chunk_z_single_color;
+
+        // This is mostly a copypaste from below, just a longer range...
+        if (((chunk->contains_nonlit_affectors_known && !chunk->contains_nonlit_affectors) || // no affectors at all? (usually sky)
+            (first_band_color.r == 0 && first_band_color.g == 0 && first_band_color.b == 0)) // OR first band is black? (usually underground/in buildings) (affectors will keep it black)
+            && !first_band_color_varies) { // first band does not vary?
+
+            if (chunk->skylight_has_single_color) {
+                // color did not change? don't bother writing it
+                if (chunk->skylight_single_color.r == first_band_color.r && chunk->skylight_single_color.g == first_band_color.g && chunk->skylight_single_color.b == first_band_color.b) return false;
+            }
+
+            // iterate with no stride
+            CHUNKCELLITR(x, y, z) {
+                const rct_xyz16& cell_coord = { x, y, z };
+                const lighting_color16 new_skylight_value = first_band_color;
+                APPLY_RESULT_TO_LIGHTMAP();
+            }
+
+            // cache the single color
+            chunk->skylight_has_single_color = true;
+            chunk->skylight_single_color = first_band_color;
+
+            return true;
         }
     }
+
+    // There will be 8 loops, each reading memory in a certain way without branches and checks as those are already done now
+    // 1 ==> [xyz]
+    // LIGHTMAP_CHUNK_SIZE - 1 ==> [xy]
+    // LIGHTMAP_CHUNK_SIZE - 1 ==> [xz]
+    // (LIGHTMAP_CHUNK_SIZE - 1)^2 ==> [x]
+    // LIGHTMAP_CHUNK_SIZE - 1 ==> [yz]
+    // (LIGHTMAP_CHUNK_SIZE - 1)^2 ==> [y]
+    // (LIGHTMAP_CHUNK_SIZE - 1)^2 ==> [z]
+    // (LIGHTMAP_CHUNK_SIZE - 1)^3 ==> []
+
+    const size_t sz_l = LIGHTMAP_CHUNK_SIZE - 1; // line size
+    const size_t sz_p = sz_l * sz_l; // plane size
+
+    // 1 ==> [xyz]
+    for (size_t upd_idx = 0; upd_idx < 1; upd_idx++) {
+        GET_COORDS(cell_coord, w_x, w_y, w_z, upd_idx);
+        lighting_color16 from_x = chunk_x ? chunk_x->data_skylight[cell_coord.z][cell_coord.y][chunk_x_cell_x] : chunk_x_single_color;
+        lighting_color16 from_y = chunk_y ? chunk_y->data_skylight[cell_coord.z][chunk_y_cell_y][cell_coord.x] : chunk_y_single_color;
+        lighting_color16 from_z = chunk_z ? chunk_z->data_skylight[chunk_z_cell_z][cell_coord.y][cell_coord.x] : chunk_z_single_color;
+        APPLY_AFFECTORS(); GET_INTERPOLATED_RESULT();
+        first_band_color = new_skylight_value;
+        APPLY_RESULT_TO_LIGHTMAP();
+    }
+
+    // LIGHTMAP_CHUNK_SIZE - 1 ==> [xy]
+    for (size_t upd_idx = 1; upd_idx < 1 + sz_l; upd_idx++) {
+        GET_COORDS(cell_coord, w_x, w_y, w_z, upd_idx);
+        lighting_color16 from_x = chunk_x ? chunk_x->data_skylight[cell_coord.z][cell_coord.y][chunk_x_cell_x] : chunk_x_single_color;
+        lighting_color16 from_y = chunk_y ? chunk_y->data_skylight[cell_coord.z][chunk_y_cell_y][cell_coord.x] : chunk_y_single_color;
+        lighting_color16 from_z = chunk->data_skylight[cell_coord.z - skylight_delta.z][cell_coord.y][cell_coord.x];
+        APPLY_AFFECTORS(); GET_INTERPOLATED_RESULT(); CHECK_SINGLE_COLOR(); APPLY_RESULT_TO_LIGHTMAP();
+    }
+
+    // LIGHTMAP_CHUNK_SIZE - 1 ==> [xz]
+    for (size_t upd_idx = 1 + sz_l; upd_idx < 1 + sz_l + sz_l; upd_idx++) {
+        GET_COORDS(cell_coord, w_x, w_y, w_z, upd_idx);
+        lighting_color16 from_x = chunk_x ? chunk_x->data_skylight[cell_coord.z][cell_coord.y][chunk_x_cell_x] : chunk_x_single_color;
+        lighting_color16 from_y = chunk->data_skylight[cell_coord.z][cell_coord.y - skylight_delta.y][cell_coord.x];
+        lighting_color16 from_z = chunk_z ? chunk_z->data_skylight[chunk_z_cell_z][cell_coord.y][cell_coord.x] : chunk_z_single_color;
+        APPLY_AFFECTORS(); GET_INTERPOLATED_RESULT(); CHECK_SINGLE_COLOR(); APPLY_RESULT_TO_LIGHTMAP();
+    }
+
+    // (LIGHTMAP_CHUNK_SIZE - 1)^2 ==> [x]
+    for (size_t upd_idx = 1 + sz_l + sz_l; upd_idx < 1 + sz_l + sz_l + sz_p; upd_idx++) {
+        GET_COORDS(cell_coord, w_x, w_y, w_z, upd_idx);
+        lighting_color16 from_x = chunk_x ? chunk_x->data_skylight[cell_coord.z][cell_coord.y][chunk_x_cell_x] : chunk_x_single_color;
+        lighting_color16 from_y = chunk->data_skylight[cell_coord.z][cell_coord.y - skylight_delta.y][cell_coord.x];
+        lighting_color16 from_z = chunk->data_skylight[cell_coord.z - skylight_delta.z][cell_coord.y][cell_coord.x];
+        APPLY_AFFECTORS(); GET_INTERPOLATED_RESULT(); CHECK_SINGLE_COLOR(); APPLY_RESULT_TO_LIGHTMAP();
+    }
+
+    // LIGHTMAP_CHUNK_SIZE - 1 ==> [yz]
+    for (size_t upd_idx = 1 + sz_l + sz_l + sz_p; upd_idx < 1 + sz_l + sz_l + sz_p + sz_l; upd_idx++) {
+        GET_COORDS(cell_coord, w_x, w_y, w_z, upd_idx);
+        lighting_color16 from_x = chunk->data_skylight[cell_coord.z][cell_coord.y][cell_coord.x - skylight_delta.x];
+        lighting_color16 from_y = chunk_y ? chunk_y->data_skylight[cell_coord.z][chunk_y_cell_y][cell_coord.x] : chunk_y_single_color;
+        lighting_color16 from_z = chunk_z ? chunk_z->data_skylight[chunk_z_cell_z][cell_coord.y][cell_coord.x] : chunk_z_single_color;
+        APPLY_AFFECTORS(); GET_INTERPOLATED_RESULT(); CHECK_SINGLE_COLOR(); APPLY_RESULT_TO_LIGHTMAP();
+    }
+
+    // (LIGHTMAP_CHUNK_SIZE - 1)^2 ==> [y]
+    for (size_t upd_idx = 1 + sz_l + sz_l + sz_p + sz_l; upd_idx < 1 + sz_l + sz_l + sz_p + sz_l + sz_p; upd_idx++) {
+        GET_COORDS(cell_coord, w_x, w_y, w_z, upd_idx);
+        lighting_color16 from_x = chunk->data_skylight[cell_coord.z][cell_coord.y][cell_coord.x - skylight_delta.x];
+        lighting_color16 from_y = chunk_y ? chunk_y->data_skylight[cell_coord.z][chunk_y_cell_y][cell_coord.x] : chunk_y_single_color;
+        lighting_color16 from_z = chunk->data_skylight[cell_coord.z - skylight_delta.z][cell_coord.y][cell_coord.x];
+        APPLY_AFFECTORS(); GET_INTERPOLATED_RESULT(); CHECK_SINGLE_COLOR(); APPLY_RESULT_TO_LIGHTMAP();
+    }
+
+    // (LIGHTMAP_CHUNK_SIZE - 1)^2 ==> [z]
+    for (size_t upd_idx = 1 + sz_l + sz_l + sz_p + sz_l + sz_p; upd_idx < 1 + sz_l + sz_l + sz_p + sz_l + sz_p + sz_p; upd_idx++) {
+        GET_COORDS(cell_coord, w_x, w_y, w_z, upd_idx);
+        lighting_color16 from_x = chunk->data_skylight[cell_coord.z][cell_coord.y][cell_coord.x - skylight_delta.x];
+        lighting_color16 from_y = chunk->data_skylight[cell_coord.z][cell_coord.y - skylight_delta.y][cell_coord.x];
+        lighting_color16 from_z = chunk_z ? chunk_z->data_skylight[chunk_z_cell_z][cell_coord.y][cell_coord.x] : chunk_z_single_color;
+        APPLY_AFFECTORS(); GET_INTERPOLATED_RESULT(); CHECK_SINGLE_COLOR(); APPLY_RESULT_TO_LIGHTMAP();
+    }
+
     if (((chunk->contains_nonlit_affectors_known && !chunk->contains_nonlit_affectors) || // no affectors at all? (usually sky)
         (first_band_color.r == 0 && first_band_color.g == 0 && first_band_color.b == 0)) // OR first band is black? (usually underground/in buildings) (affectors will keep it black)
         && !first_band_color_varies) { // first band does not vary?
@@ -1370,24 +1516,8 @@ template<bool has_static_lights> static bool lighting_update_skylight_rebuild(li
         // shortcut to not bother reading the affectors, just set all colors to first_band_color
         for (size_t upd_idx = skylight_cell_itr_zerodist_count; upd_idx < LIGHTMAP_CHUNK_SIZE * LIGHTMAP_CHUNK_SIZE * LIGHTMAP_CHUNK_SIZE; upd_idx++) {
             const rct_xyz16& cell_coord = skylight_cell_itr[upd_idx];
-            chunk->data_skylight[cell_coord.z][cell_coord.y][cell_coord.x] = first_band_color;
-
-            if (has_static_lights) {
-                lighting_color static_value = chunk->data_static[cell_coord.z][cell_coord.y][cell_coord.x];
-                lighting_color new_skylight_static = {
-                    (uint8)(Math::Min((int)static_value.r + (first_band_color.r >> 8), 255)),
-                    (uint8)(Math::Min((int)static_value.g + (first_band_color.g >> 8), 255)),
-                    (uint8)(Math::Min((int)static_value.b + (first_band_color.b >> 8), 255)),
-                };
-                chunk->data_skylight_static[cell_coord.z][cell_coord.y][cell_coord.x] = new_skylight_static;
-            }
-            else {
-                chunk->data_skylight_static[cell_coord.z][cell_coord.y][cell_coord.x] = {
-                    (uint8)(first_band_color.r >> 8),
-                    (uint8)(first_band_color.g >> 8),
-                    (uint8)(first_band_color.b >> 8),
-                };
-            }
+            const lighting_color16 new_skylight_value = first_band_color;
+            APPLY_RESULT_TO_LIGHTMAP();
         }
 
         // cache the single color
@@ -1398,65 +1528,17 @@ template<bool has_static_lights> static bool lighting_update_skylight_rebuild(li
     {
         chunk->skylight_has_single_color = false;
 
-        // incoming light is never on an edge
+        // (LIGHTMAP_CHUNK_SIZE - 1)^3 ==> []
         for (size_t upd_idx = skylight_cell_itr_zerodist_count; upd_idx < LIGHTMAP_CHUNK_SIZE * LIGHTMAP_CHUNK_SIZE * LIGHTMAP_CHUNK_SIZE; upd_idx++) {
-            const rct_xyz16& cell_coord = skylight_cell_itr[upd_idx];
-            sint16 w_x = chunk->x * LIGHTMAP_CHUNK_SIZE + cell_coord.x;
-            sint16 w_y = chunk->y * LIGHTMAP_CHUNK_SIZE + cell_coord.y;
-            sint16 w_z = chunk->z * LIGHTMAP_CHUNK_SIZE + cell_coord.z;
+            GET_COORDS(cell_coord, w_x, w_y, w_z, upd_idx);
 
             lighting_color16 from_x = chunk->data_skylight[cell_coord.z][cell_coord.y][cell_coord.x - skylight_delta.x];
             lighting_color16 from_y = chunk->data_skylight[cell_coord.z][cell_coord.y - skylight_delta.y][cell_coord.x];
             lighting_color16 from_z = chunk->data_skylight[cell_coord.z - skylight_delta.z][cell_coord.y][cell_coord.x];
 
-            if (exec_affectors) {
-                lighting_color& affector_x = lightingAffectorsX[LAIDX(w_y, Math::Min(LIGHTMAP_SIZE_X - 1, w_x + skylight_delta_affectordelta.x), w_z)];
-                lighting_color& affector_y = lightingAffectorsY[LAIDX(Math::Min(LIGHTMAP_SIZE_Y - 1, w_y + skylight_delta_affectordelta.y), w_x, w_z)];
-                lighting_color& affector_z = lightingAffectorsZ[LAIDX(w_y, w_x, Math::Min(LIGHTMAP_SIZE_Z - 1, w_z + skylight_delta_affectordelta.z))];
-                lighting_multiply16(&from_x, affector_x);
-                lighting_multiply16(&from_y, affector_y);
-                lighting_multiply16(&from_z, affector_z);
-
-                if (!chunk->contains_nonlit_affectors_known) {
-                    if (affector_x.r != lit.r || affector_x.g != lit.g || affector_x.b != lit.b ||
-                        affector_y.r != lit.r || affector_y.g != lit.g || affector_y.b != lit.b ||
-                        affector_z.r != lit.r || affector_z.g != lit.g || affector_z.b != lit.b) {
-                        // this contains an affector that is nonlit
-                        chunk->contains_nonlit_affectors_known = true;
-                        chunk->contains_nonlit_affectors = true;
-                    }
-                }
-            }
-
-            const uint32 fragx = skylight_direction_abs[0];
-            const uint32 fragy = skylight_direction_abs[1];
-            const uint32 fragz = skylight_direction_abs[2];
-
-            // interpolate values
-            lighting_color16 new_skylight_value = {
-                (uint16)(Math::Min(from_x.r * fragx + from_y.r * fragy + from_z.r * fragz, 65535u * 65536u) >> 16),
-                (uint16)(Math::Min(from_x.g * fragx + from_y.g * fragy + from_z.g * fragz, 65535u * 65536u) >> 16),
-                (uint16)(Math::Min(from_x.b * fragx + from_y.b * fragy + from_z.b * fragz, 65535u * 65536u) >> 16)
-            };
-
-            // does not require a lock, skylight scheduling handles that
-            chunk->data_skylight[cell_coord.z][cell_coord.y][cell_coord.x] = new_skylight_value;
-
-            if (has_static_lights) {
-                lighting_color static_value = chunk->data_static[cell_coord.z][cell_coord.y][cell_coord.x];
-                lighting_color new_skylight_static = {
-                    (uint8)(Math::Min((int)static_value.r + (new_skylight_value.r >> 8), 255)),
-                    (uint8)(Math::Min((int)static_value.g + (new_skylight_value.g >> 8), 255)),
-                    (uint8)(Math::Min((int)static_value.b + (new_skylight_value.b >> 8), 255)),
-                };
-                chunk->data_skylight_static[cell_coord.z][cell_coord.y][cell_coord.x] = new_skylight_static;
-            } else {
-                chunk->data_skylight_static[cell_coord.z][cell_coord.y][cell_coord.x] = {
-                    (uint8)(new_skylight_value.r >> 8),
-                    (uint8)(new_skylight_value.g >> 8),
-                    (uint8)(new_skylight_value.b >> 8),
-                };
-            }
+            APPLY_AFFECTORS();
+            GET_INTERPOLATED_RESULT();
+            APPLY_RESULT_TO_LIGHTMAP();
         }
     }
 
@@ -1465,6 +1547,12 @@ template<bool has_static_lights> static bool lighting_update_skylight_rebuild(li
         chunk->contains_nonlit_affectors_known = true;
         chunk->contains_nonlit_affectors = false;
     }
+
+    #undef GET_COORDS
+    #undef APPLY_AFFECTORS
+    #undef GET_INTERPOLATED_RESULT
+    #undef APPLY_RESULT_TO_LIGHTMAP
+    #undef CHECK_SINGLE_COLOR
 
     return true;
 }
@@ -1478,10 +1566,11 @@ static void lighting_update_skylight(lighting_chunk* chunk) {
         std::shared_lock<std::shared_mutex> lock1(chunk->data_static_mutex);
         std::unique_lock<std::shared_mutex> lock2(chunk->data_skylight_static_mutex);
 
+        bool exec_affectors = !chunk->contains_nonlit_affectors_known || chunk->contains_nonlit_affectors;
         if (chunk->static_lights_count > 0)
-            need_gpu_update = lighting_update_skylight_rebuild<true>(chunk);
+            need_gpu_update = exec_affectors ? lighting_update_skylight_rebuild<true, true>(chunk) : lighting_update_skylight_rebuild<true, false>(chunk);
         else
-            need_gpu_update = lighting_update_skylight_rebuild<false>(chunk);
+            need_gpu_update = exec_affectors ? lighting_update_skylight_rebuild<false, true>(chunk) : lighting_update_skylight_rebuild<false, false>(chunk);
     }
 
     if (need_gpu_update) {
