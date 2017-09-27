@@ -53,6 +53,9 @@ typedef struct lighting_chunk {
     bool contains_nonlit_affectors;
     bool skylight_has_single_color;
     lighting_color16 skylight_single_color;
+
+    // skylight dependency counter
+    std::atomic<uint8> skylight_update_dependencies_left;
 } lighting_chunk;
 
 // how the light will be affected when light passes through a certain plane
@@ -141,9 +144,7 @@ float skylight_direction[3] = { 0.0, 0.0, 0.0 }; // normalized with manhattan di
 uint32 skylight_direction_abs[3] = { 0, 0, 0 }; // abs(skylight_direction) * (2^16) (NOT 2^16-1, this allows for fast division)
 rct_xyz16 skylight_delta = { 0, 0, 0 }; // each value +1 or -1, depending on the direction the skylight travels
 rct_xyz16 skylight_delta_affectordelta = { 0, 0, 0 }; // value is x < 0 ? 1 : 0 of skylight_delta
-std::vector<lighting_chunk*> skylight_batch[LIGHTMAP_CHUNKS_X + LIGHTMAP_CHUNKS_Y + LIGHTMAP_CHUNKS_Z]; // indexed by distance to corner
-int skylight_batch_current = 0;
-std::atomic<uint8> skylight_batch_remaining;
+std::atomic<uint16> skylight_batch_remaining;
 rct_xyz16 skylight_cell_itr[LIGHTMAP_CHUNK_SIZE * LIGHTMAP_CHUNK_SIZE * LIGHTMAP_CHUNK_SIZE]; // See where skylight_cell_itr is filled for how this array its contents are ordered
 const size_t skylight_cell_itr_zerodist_count = LIGHTMAP_CHUNK_SIZE * LIGHTMAP_CHUNK_SIZE * LIGHTMAP_CHUNK_SIZE - (LIGHTMAP_CHUNK_SIZE - 1) * (LIGHTMAP_CHUNK_SIZE - 1) * (LIGHTMAP_CHUNK_SIZE - 1); // amount of cells at the incoming edge of a chunk (16^3 - 15^3)
 
@@ -613,7 +614,6 @@ void lighting_init() {
     float new_skylight_direction[3] = { -0.2f, 0.4f, -0.4f };
     lighting_set_skylight_direction(new_skylight_direction);
 
-    skylight_batch_current = -1;
     lighting_enqueue_next_skylight_batch();
 
     if (worker_threads.size() == 0) {
@@ -677,23 +677,6 @@ void lighting_set_skylight_direction(float direction[3]) {
     rct_xyz16 delta = { static_cast<sint16>(direction[0] > 0 ? 1 : -1), static_cast<sint16>(direction[1] > 0 ? 1 : -1), static_cast<sint16>(direction[2] > 0 ? 1 : -1) };
 
     if (delta.x != skylight_delta.x || delta.y != skylight_delta.y || delta.z != skylight_delta.z) {
-        // rebuild chunk iterators...
-        for (int dist = 0; dist < LIGHTMAP_CHUNKS_X + LIGHTMAP_CHUNKS_Y + LIGHTMAP_CHUNKS_Z; dist++) {
-            skylight_batch[dist].clear();
-        }
-
-        rct_xyz16 sourceChunk = { static_cast<sint16>(delta.x == -1 ? LIGHTMAP_CHUNKS_X - 1 : 0), static_cast<sint16>(delta.y == -1 ? LIGHTMAP_CHUNKS_Y - 1 : 0), static_cast<sint16>(delta.z == -1 ? LIGHTMAP_CHUNKS_Z - 1 : 0) };
-        log_info("start at %d %d %d", sourceChunk.x, sourceChunk.y, sourceChunk.z);
-
-        for (int z = 0; z < LIGHTMAP_CHUNKS_Z; z++) {
-            for (int y = 0; y < LIGHTMAP_CHUNKS_Y; y++) {
-                for (int x = 0; x < LIGHTMAP_CHUNKS_X; x++) {
-                    int dist = abs(sourceChunk.x - x) + abs(sourceChunk.y - y) + abs(sourceChunk.z - z);
-                    skylight_batch[dist].emplace_back(&LIGHTINGCHUNK(z, y, x));
-                }
-            }
-        }
-
         // rebuild cell iterator...
         rct_xyz16 sourceCell = { static_cast<sint16>(delta.x == -1 ? LIGHTMAP_CHUNK_SIZE - 1 : 0), static_cast<sint16>(delta.y == -1 ? LIGHTMAP_CHUNK_SIZE - 1 : 0), static_cast<sint16>(delta.z == -1 ? LIGHTMAP_CHUNK_SIZE - 1 : 0) };
 
@@ -750,8 +733,6 @@ void lighting_set_skylight_direction(float direction[3]) {
             }
         }
     }
-
-    skylight_batch_current = -1;
 
     log_info("Set skylight %f %f %f", direction[0], direction[1], direction[2]);
 }
@@ -1264,43 +1245,45 @@ static void lighting_update_any_dynamic_light() {
 static void lighting_enqueue_next_skylight_batch() {
     std::lock_guard<std::mutex> lock(outdated_skylight_mutex);
 
-    do {
-        skylight_batch_current++;
-        if (skylight_batch_current >= LIGHTMAP_CHUNKS_X + LIGHTMAP_CHUNKS_Y + LIGHTMAP_CHUNKS_Z) {
-            static std::chrono::high_resolution_clock::time_point itr_start_time = std::chrono::high_resolution_clock::now();
-            std::chrono::high_resolution_clock::time_point itr_end_time = std::chrono::high_resolution_clock::now();
-            float itr_time = std::chrono::duration_cast<std::chrono::milliseconds>(itr_end_time - itr_start_time).count();
-            itr_start_time = itr_end_time;
-            log_info("skylight iteration took %f ms", itr_time);
+    static std::chrono::high_resolution_clock::time_point itr_start_time = std::chrono::high_resolution_clock::now();
+    std::chrono::high_resolution_clock::time_point itr_end_time = std::chrono::high_resolution_clock::now();
+    float itr_time = std::chrono::duration_cast<std::chrono::milliseconds>(itr_end_time - itr_start_time).count();
+    itr_start_time = itr_end_time;
+    log_info("skylight iteration took %f ms", itr_time);
 
 
-            float direction[3];
-            float alpha = 0.8f;
-            static float beta = -4.0f;
-            beta += 0.001f;
+    float direction[3];
+    float alpha = 0.8f;
+    static float beta = -4.0f;
+    beta += 0.001f;
 
-            direction[2] = sin(alpha) * cos(beta);
-            direction[0] = cos(alpha) * cos(beta);
-            direction[1] = sin(beta);
+    direction[2] = sin(alpha) * cos(beta);
+    direction[0] = cos(alpha) * cos(beta);
+    direction[1] = sin(beta);
 
-            float len = fabs(direction[0]) + fabs(direction[1]) + fabs(direction[2]);
-            direction[0] /= len;
-            direction[1] /= len;
-            direction[2] /= len;
+    float len = fabs(direction[0]) + fabs(direction[1]) + fabs(direction[2]);
+    direction[0] /= len;
+    direction[1] /= len;
+    direction[2] /= len;
 
-            //float new_skylight_direction[3] = { 0.597109f, 0.252454f, -0.150437f };
+    //float new_skylight_direction[3] = { 0.597109f, 0.252454f, -0.150437f };
 
-            lighting_set_skylight_direction(direction);
+    lighting_set_skylight_direction(direction);
 
-            skylight_batch_current = 0;
+    rct_xyz16 source_chunk = { static_cast<sint16>(skylight_delta.x == -1 ? LIGHTMAP_CHUNKS_X - 1 : 0), static_cast<sint16>(skylight_delta.y == -1 ? LIGHTMAP_CHUNKS_Y - 1 : 0), static_cast<sint16>(skylight_delta.z == -1 ? LIGHTMAP_CHUNKS_Z - 1 : 0) };
+    for (int z = 0; z < LIGHTMAP_CHUNKS_Z; z++) {
+        for (int y = 0; y < LIGHTMAP_CHUNKS_Y; y++) {
+            for (int x = 0; x < LIGHTMAP_CHUNKS_X; x++) {
+                LIGHTINGCHUNK(z, y, x).skylight_update_dependencies_left.store((x != source_chunk.x) + (y != source_chunk.y) + (z != source_chunk.z));
+            }
         }
+    }
 
-        for (lighting_chunk* chunk : skylight_batch[skylight_batch_current]) {
-            outdated_skylight.push(chunk);
-        }
-    } while (skylight_batch[skylight_batch_current].size() == 0);
+    if (!outdated_skylight.empty())
+        outdated_skylight.clear();
+    outdated_skylight.push(&LIGHTINGCHUNK(source_chunk.z, source_chunk.y, source_chunk.x));
 
-    skylight_batch_remaining = (uint8)skylight_batch[skylight_batch_current].size();
+    skylight_batch_remaining = LIGHTMAP_CHUNKS_X * LIGHTMAP_CHUNKS_Y * LIGHTMAP_CHUNKS_Z;
 }
 
 // This function is templated for performance, the compiler will eliminate dead code depending on the template args used
@@ -1579,6 +1562,21 @@ static void lighting_update_skylight(lighting_chunk* chunk) {
     }
 }
 
+static void lighting_clear_dependency_at(int z, int y, int x, lighting_chunk*& next_chunk) {
+    lighting_chunk& adj_chunk = LIGHTINGCHUNK(z, y, x);
+    if (--adj_chunk.skylight_update_dependencies_left == 0) {
+        if (next_chunk) {
+            // this thread already has a next skylight chunk it'll compute, so queue it for some other thread
+            std::lock_guard<std::mutex> lock(outdated_skylight_mutex);
+            outdated_skylight.push(&adj_chunk);
+        }
+        else
+        {
+            next_chunk = &adj_chunk;
+        }
+    }
+}
+
 static void lighting_update_any_skylight() {
     lighting_chunk* chunk;
     {
@@ -1589,10 +1587,30 @@ static void lighting_update_any_skylight() {
         chunk = outdated_skylight.frontpop();
     }
 
-    lighting_update_skylight(chunk);
-    
-    if (--skylight_batch_remaining == 0) {
-        lighting_enqueue_next_skylight_batch();
+    while (chunk) {
+        lighting_update_skylight(chunk);
+
+        // if any of the dependency reductions below will yield 0 dependencies left, that chunk will
+        //     be stored in this variable and NOT queued, so this thread can immediately continue processing
+        //     this chunk
+        lighting_chunk* next_chunk = nullptr;
+
+        // one dependency for adjacent chunks is now done
+        if (chunk->x + skylight_delta.x >= 0 && chunk->x + skylight_delta.x < LIGHTMAP_CHUNKS_X) {
+            lighting_clear_dependency_at(chunk->z, chunk->y, chunk->x + skylight_delta.x, next_chunk);
+        }
+        if (chunk->y + skylight_delta.y >= 0 && chunk->y + skylight_delta.y < LIGHTMAP_CHUNKS_Y) {
+            lighting_clear_dependency_at(chunk->z, chunk->y + skylight_delta.y, chunk->x, next_chunk);
+        }
+        if (chunk->z + skylight_delta.z >= 0 && chunk->z + skylight_delta.z < LIGHTMAP_CHUNKS_Z) {
+            lighting_clear_dependency_at(chunk->z + skylight_delta.z, chunk->y, chunk->x, next_chunk);
+        }
+
+        if (--skylight_batch_remaining == 0) {
+            lighting_enqueue_next_skylight_batch();
+        }
+
+        chunk = next_chunk;
     }
 }
 
